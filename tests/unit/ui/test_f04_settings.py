@@ -117,6 +117,21 @@ def test_settings_panel_has_accessible_controls_and_reset(
     panel.close()
 
 
+def test_settings_panel_surfaces_invalid_save_without_mutating_storage(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    store = SettingsStore(QSettings(str(tmp_path / "invalid-save.ini"), QSettings.Format.IniFormat))
+    panel = SettingsPanel(store)
+    panel.speech.setChecked(True)
+    panel.quiet_enabled.setChecked(True)
+    panel.quiet_start.setText("not-a-time")
+    panel.save_button.click()
+
+    assert "could not be saved" in panel.error.text()
+    assert not store.load().speech_enabled
+    panel.close()
+
+
 def test_speech_bubble_is_passive_and_taskbar_safe(qapp: QApplication) -> None:
     pet = PetWindow()
     pet.move(100, 100)
