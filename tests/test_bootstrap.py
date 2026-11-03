@@ -1,6 +1,8 @@
 """Smoke tests for the clean-slate project bootstrap."""
 
+import subprocess
 import sys
+from types import ModuleType
 
 import pytest
 
@@ -17,9 +19,28 @@ def test_cli_help_exits_successfully(capsys: pytest.CaptureFixture[str]) -> None
 
 
 def test_domain_import_does_not_load_qt() -> None:
-    import daemon_reborn.domain  # noqa: F401
+    # Simulate another collected test loading Qt before this check runs.
+    sys.modules["PySide6"] = ModuleType("PySide6")
+    try:
+        code = (
+            "import sys; import daemon_reborn.domain; "
+            "assert not any(name == 'PySide6' or name.startswith('PySide6.') "
+            "for name in sys.modules)"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                code,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
 
-    assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.modules)
+    finally:
+        sys.modules.pop("PySide6", None)
 
 
 def test_bootstrap_version_is_set() -> None:
