@@ -8,7 +8,6 @@ from daemon_reborn.ui.geometry import (
     anchor_for_position,
     clamp_top_left,
     place_on_screen,
-    select_screen,
 )
 
 
@@ -18,14 +17,6 @@ def test_anchor_places_pet_at_normalized_point_in_available_geometry() -> None:
     result = place_on_screen(screen, NormalizedAnchor(1.0, 0.0), QSize(160, 160))
 
     assert result == QRect(1760, 40, 160, 160)
-
-
-def test_screen_selection_keeps_preferred_screen_and_recovers_when_removed() -> None:
-    first = ScreenArea("left", QRect(-1600, 0, 1600, 900))
-    primary = ScreenArea("primary", QRect(0, 0, 1920, 1080))
-
-    assert select_screen([first, primary], "left", primary) == first
-    assert select_screen([primary], "left", primary) == primary
 
 
 def test_clamp_recovers_fully_offscreen_or_partially_outside_position() -> None:
