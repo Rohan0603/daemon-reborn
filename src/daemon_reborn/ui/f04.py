@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -124,6 +125,8 @@ def is_quiet_at(settings: UiSettings, instant: datetime) -> bool:
     )
     start = _parse_time(settings.quiet_start)
     end = _parse_time(settings.quiet_end)
+    if start.tzinfo is not None or end.tzinfo is not None:
+        raise ValueError("quiet-hours times must be local wall-clock values")
     if start == end:
         return True
     if start < end:
@@ -148,6 +151,15 @@ class SettingsPanel(QDialog):
             "Reduced motion", "reduced_motion", self._settings.reduced_motion
         )
         self.privacy = self._check("Privacy mode", "privacy_mode", self._settings.privacy_mode)
+        self.quiet_enabled = self._check(
+            "Enable quiet hours", "quiet_enabled", self._settings.quiet_enabled
+        )
+        self.quiet_start = QLineEdit(self._settings.quiet_start or "22:00")
+        self.quiet_start.setAccessibleName("Quiet-hours start")
+        self.quiet_start.setAccessibleDescription("Local wall-clock start time, HH:MM")
+        self.quiet_end = QLineEdit(self._settings.quiet_end or "07:00")
+        self.quiet_end.setAccessibleName("Quiet-hours end")
+        self.quiet_end.setAccessibleDescription("Local wall-clock end time, HH:MM")
         self.timezone = QLineEdit(self._settings.quiet_timezone)
         self.timezone.setAccessibleName("Quiet-hours timezone")
         self.timezone.setAccessibleDescription("IANA timezone or system local time")
@@ -157,11 +169,18 @@ class SettingsPanel(QDialog):
         self.reset_button = QPushButton("Reset UI preferences")
         self.reset_button.setAccessibleName("Reset UI preferences")
         self.reset_button.clicked.connect(self._reset)
+        self.error = QLabel("")
+        self.error.setAccessibleName("Settings error")
+        self.error.setAccessibleDescription("Settings save or reset error")
+        self.error.setWordWrap(True)
         form = QFormLayout()
         form.addRow(self.speech)
         form.addRow(self.mute)
         form.addRow(self.reduced_motion)
         form.addRow(self.privacy)
+        form.addRow(self.quiet_enabled)
+        form.addRow("Quiet-hours start", self.quiet_start)
+        form.addRow("Quiet-hours end", self.quiet_end)
         form.addRow("Quiet-hours timezone", self.timezone)
         buttons = QVBoxLayout()
         buttons.addWidget(self.save_button)
@@ -169,6 +188,7 @@ class SettingsPanel(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Provider status: UNCONFIGURED"))
         layout.addLayout(form)
+        layout.addWidget(self.error)
         layout.addLayout(buttons)
 
     def _check(self, label: str, name: str, checked: bool) -> QCheckBox:
@@ -181,24 +201,46 @@ class SettingsPanel(QDialog):
         return control
 
     def _save(self) -> None:
-        self._settings = replace(
+        candidate = replace(
             self._settings,
+            quiet_enabled=self.quiet_enabled.isChecked(),
+            quiet_start=self.quiet_start.text().strip() or None,
+            quiet_end=self.quiet_end.text().strip() or None,
             speech_enabled=self.speech.isChecked(),
             mute=self.mute.isChecked(),
             reduced_motion=self.reduced_motion.isChecked(),
             privacy_mode=self.privacy.isChecked(),
             quiet_timezone=self.timezone.text().strip() or "system",
         )
-        self.store.save(self._settings)
+        if self.store.save(candidate):
+            self._settings = candidate
+            self.error.clear()
+        else:
+            self.error.setText("Settings could not be saved; your previous settings were kept.")
 
     def _reset(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Reset UI preferences",
+            "Reset UI preferences? This does not delete consent, tokens, or memory.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if not self.store.reset_user_preferences():
+            self.error.setText("Settings could not be reset; your previous settings were kept.")
+            return
         self._settings = UiSettings()
         self.speech.setChecked(False)
         self.mute.setChecked(False)
         self.reduced_motion.setChecked(False)
         self.privacy.setChecked(True)
+        self.quiet_enabled.setChecked(False)
+        self.quiet_start.setText("22:00")
+        self.quiet_end.setText("07:00")
         self.timezone.setText("system")
-        self.store.reset_user_preferences()
+        self.error.clear()
 
 
 class SpeechBubble(QWidget):
@@ -252,7 +294,10 @@ class SpeechBubble(QWidget):
 def _parse_time(value: str | None) -> time:
     if not value:
         raise ValueError("quiet-hours time is required")
-    return time.fromisoformat(value)
+    parsed = time.fromisoformat(value)
+    if parsed.tzinfo is not None:
+        raise ValueError("quiet-hours times must be local wall-clock values")
+    return parsed
 
 
 def _as_bool(value: object) -> bool:

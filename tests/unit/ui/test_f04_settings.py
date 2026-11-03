@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from daemon_reborn.ui.f04 import (
     SettingsPanel,
@@ -70,8 +70,19 @@ def test_invalid_quiet_hours_fall_back_to_safe_defaults(tmp_path: Path) -> None:
     assert SettingsStore(settings).load() == UiSettings()
 
 
+def test_offset_bearing_quiet_time_falls_back_to_safe_defaults(tmp_path: Path) -> None:
+    settings = QSettings(str(tmp_path / "offset.ini"), QSettings.Format.IniFormat)
+    settings.setValue("ui/v1/quietEnabled", True)
+    settings.setValue("ui/v1/quietStart", "22:00+01:00")
+    settings.setValue("ui/v1/quietEnd", "07:00")
+    settings.setValue("ui/v1/quietTimezone", "UTC")
+    settings.sync()
+
+    assert SettingsStore(settings).load() == UiSettings()
+
+
 def test_settings_panel_has_accessible_controls_and_reset(
-    qapp: QApplication, tmp_path: Path
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = SettingsStore(QSettings(str(tmp_path / "panel.ini"), QSettings.Format.IniFormat))
     panel = SettingsPanel(store)
@@ -79,12 +90,30 @@ def test_settings_panel_has_accessible_controls_and_reset(
     assert panel.accessibleName() == "Daemon Reborn settings"
     assert panel.speech.accessibleName() == "Enable speech"
     assert panel.privacy.accessibleName() == "Privacy mode"
+    assert panel.quiet_enabled.accessibleName() == "Enable quiet hours"
+    assert panel.quiet_start.accessibleName() == "Quiet-hours start"
+    assert panel.quiet_end.accessibleName() == "Quiet-hours end"
+    panel.quiet_enabled.setChecked(True)
+    panel.quiet_start.setText("21:00")
+    panel.quiet_end.setText("06:00")
     panel.speech.setChecked(True)
     panel.save_button.click()
     assert store.load().speech_enabled
+    assert store.load().quiet_enabled
+    monkeypatch.setattr(
+        "daemon_reborn.ui.f04.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.No,
+    )
+    panel.reset_button.click()
+    assert store.load().speech_enabled
+    monkeypatch.setattr(
+        "daemon_reborn.ui.f04.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
     panel.reset_button.click()
     assert not store.load().speech_enabled
     assert store.load().privacy_mode
+    assert not store.load().quiet_enabled
     panel.close()
 
 
