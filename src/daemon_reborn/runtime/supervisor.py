@@ -157,6 +157,7 @@ class WorkerSupervisor:
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
+        self._graceful_hook_thread: threading.Thread | None = None
         self._state = SupervisorState.STOPPED
         self._pid: int | None = None
         self._restart_count = 0
@@ -183,6 +184,8 @@ class WorkerSupervisor:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("worker supervision is already active")
+            if self._graceful_hook_thread is not None and self._graceful_hook_thread.is_alive():
+                raise RuntimeError("previous graceful stop hook is still running")
             self._stop_requested.clear()
             self._restart_count = 0
             self._last_exit_code = None
@@ -366,11 +369,14 @@ class WorkerSupervisor:
                 finally:
                     completed.set()
 
-            threading.Thread(
+            hook_thread = threading.Thread(
                 target=invoke_hook,
                 name="worker-graceful-stop",
                 daemon=True,
-            ).start()
+            )
+            with self._lock:
+                self._graceful_hook_thread = hook_thread
+            hook_thread.start()
             finished = completed.wait(max(0.0, deadline - time.monotonic()))
             if not finished:
                 logger.error(

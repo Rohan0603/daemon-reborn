@@ -159,10 +159,12 @@ def test_hung_graceful_stop_hook_does_not_exceed_shutdown_deadline(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
+    finished = threading.Event()
 
     def hang_stop(_pid: int) -> None:
         entered.set()
         release.wait()
+        finished.set()
 
     supervisor = WorkerSupervisor(
         WorkerSpec(command=(sys.executable, "-c", "import time; time.sleep(30)")),
@@ -182,7 +184,10 @@ def test_hung_graceful_stop_hook_does_not_exceed_shutdown_deadline(
     assert time.monotonic() - before < 1.0
     assert supervisor.snapshot().state is SupervisorState.STOPPED
     assert "worker_graceful_stop_timed_out" in caplog.text
+    with pytest.raises(RuntimeError, match="graceful stop hook"):
+        supervisor.start()
     release.set()
+    assert finished.wait(timeout=1.0)
 
 
 def test_crash_diagnostics_do_not_capture_worker_output(caplog: pytest.LogCaptureFixture) -> None:
