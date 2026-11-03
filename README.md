@@ -33,11 +33,22 @@ interpreter line and resolved dependencies. PySide6 is a runtime dependency; tes
 are in the `dev` dependency group. Optional speech/model dependencies are intentionally not
 installed by the base environment.
 
-## Current scaffold
+## Run the desktop shell
+
+Start the minimal Windows shell from a development checkout:
+
+```powershell
+uv run python -m daemon_reborn
+```
+
+The shell shows a small placeholder character and a system-tray menu with Show pet, Hide pet, Settings, and Exit. Use Show/Hide pet to toggle the character, or Exit to shut down. Settings currently opens a placeholder notice. This shell does not start network, language-model, speech, or worker services and requires a Windows system tray.
+
+## Current project scope
 
 The `src/daemon_reborn` package establishes boundaries for app orchestration, standard-library-only
 domain code, animation, Qt UI, voice, intelligence, memory and integrations. The CLI is a bootstrap
-entrypoint; product behavior is implemented through the scoped Linear issues.
+entrypoint for the current shell; further product behavior is implemented through the scoped Linear
+issues.
 
 PySide6 distribution and packaging obligations remain subject to the project's separate license
 review before release.
