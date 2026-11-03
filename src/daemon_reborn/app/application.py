@@ -14,7 +14,6 @@ from daemon_reborn.ui.geometry import (
     anchor_for_position,
     clamp_top_left,
     place_on_screen,
-    select_screen,
 )
 from daemon_reborn.ui.pet import PetWindow
 from daemon_reborn.ui.tray import TrayController
@@ -34,10 +33,9 @@ class DesktopApplication:
         self._placement_settings = placement_settings or QSettings("Daemon Reborn", "Daemon Reborn")
         self._watched_screens: list[QScreen] = []
         primary = QGuiApplication.primaryScreen()
-        default_screen = (primary.name() or "primary") if primary is not None else ""
-        self._placement_screen = (
-            str(self._placement_settings.value("ui/petScreen", default_screen)) or None
-        )
+        # Screen references are intentionally process-local.  QScreen.name() is
+        # user-presentable and not guaranteed unique or stable across reconnects.
+        self._placement_screen: QScreen | None = primary
         try:
             self._placement_anchor = NormalizedAnchor(
                 float(str(self._placement_settings.value("ui/petAnchorX", 0.9))),
@@ -116,12 +114,10 @@ class DesktopApplication:
             return None
         primary = primary or screens[0]
         primary_area = self._screen_area(primary)
-        areas = [self._screen_area(screen) for screen in screens]
-        selected = select_screen(areas, self._placement_screen, primary_area)
-        screen = next(
-            (candidate for candidate in screens if candidate.name() == selected.name), primary
-        )
-        return screen, selected
+        if self._placement_screen in screens:
+            screen = self._placement_screen
+            return screen, self._screen_area(screen)
+        return primary, primary_area
 
     def _watch_screen(self, screen: QScreen) -> None:
         if screen in self._watched_screens:
@@ -142,9 +138,13 @@ class DesktopApplication:
             pass
         if screen in self._watched_screens:
             self._watched_screens.remove(screen)
+        if self._placement_screen is screen:
+            self._placement_screen = None
         self._restore_pet_position()
 
     def _on_screen_geometry_changed(self, _geometry: QRect) -> None:
+        if self.pet_window.is_dragging:
+            return
         self._restore_pet_position()
 
     def _restore_pet_position(self, _screen: QScreen | None = None) -> None:
@@ -168,9 +168,10 @@ class DesktopApplication:
         rect = QRect(self.pet_window.pos(), self.pet_window.size())
         x, y = clamp_top_left(rect, area.available)
         self.pet_window.move(x, y)
-        self._placement_screen = screen.name() or "primary"
+        self._placement_screen = screen
         self._placement_anchor = anchor_for_position(self.pet_window.geometry(), area)
-        self._placement_settings.setValue("ui/petScreen", self._placement_screen)
         self._placement_settings.setValue("ui/petAnchorX", self._placement_anchor.x)
         self._placement_settings.setValue("ui/petAnchorY", self._placement_anchor.y)
         self._placement_settings.sync()
+        if self._placement_settings.status() != QSettings.Status.NoError:
+            logger.warning("Unable to persist pet placement; retaining the anchor in memory")

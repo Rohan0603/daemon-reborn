@@ -61,7 +61,12 @@ def anchor_for_position(rect: QRect, screen: ScreenArea) -> NormalizedAnchor:
 def select_screen(
     screens: list[ScreenArea], preferred_name: str | None, primary: ScreenArea
 ) -> ScreenArea:
-    """Keep the preferred display when present, otherwise recover to primary."""
+    """Select a display for in-memory fixtures, falling back to the primary area.
+
+    ``name`` is retained as a fixture/display label only.  Production placement
+    uses the ``QScreen`` object identity while the process is running and never
+    persists or restores this label across restarts.
+    """
     for screen in screens:
         if screen.name == preferred_name:
             return screen

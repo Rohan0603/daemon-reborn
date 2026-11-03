@@ -39,6 +39,11 @@ class PetWindow(QWidget):
         """Whether the application has permanently closed this window."""
         return self._shutdown
 
+    @property
+    def is_dragging(self) -> bool:
+        """Whether a pointer drag is currently in progress."""
+        return self._drag_origin is not None and self._drag_pointer is not None
+
     def shutdown(self) -> None:
         """Allow the close event through during application shutdown."""
         self._shutdown = True

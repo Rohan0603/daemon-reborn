@@ -142,7 +142,7 @@ def test_desktop_application_shutdown_hides_owned_ui(qapp: QApplication) -> None
     assert desktop.pet_window.is_shutdown
 
 
-def test_desktop_application_persists_normalized_screen_anchor(
+def test_desktop_application_persists_normalized_anchor_without_screen_identity(
     qapp: QApplication, tmp_path: Path
 ) -> None:
     from daemon_reborn.app.application import DesktopApplication
@@ -152,14 +152,14 @@ def test_desktop_application_persists_normalized_screen_anchor(
     first = DesktopApplication(qapp, settings)
     first.pet_window.move(100, 100)
     first._remember_pet_position()
-    saved_screen = settings.value("ui/petScreen")
     saved_x = settings.value("ui/petAnchorX")
     saved_y = settings.value("ui/petAnchorY")
+    assert settings.value("ui/petScreen") is None
     first.shutdown()
 
     second = DesktopApplication(qapp, QSettings(str(settings_path), QSettings.Format.IniFormat))
 
-    assert second._placement_screen == saved_screen
+    assert second._placement_screen is qapp.primaryScreen()
     assert second._placement_anchor.x == float(saved_x)
     assert second._placement_anchor.y == float(saved_y)
     second.shutdown()
@@ -214,11 +214,16 @@ def test_screen_change_restores_anchor_after_resize_unplug_and_replug(
         ),
     )
     settings = QSettings(str(tmp_path / "screen-change.ini"), QSettings.Format.IniFormat)
-    settings.setValue("ui/petScreen", "external")
     settings.setValue("ui/petAnchorX", 0.5)
     settings.setValue("ui/petAnchorY", 0.5)
 
     desktop = DesktopApplication(qapp, settings)
+    assert desktop.pet_window.geometry() == QRect(880, 460, 160, 160)
+
+    # A secondary monitor may be selected for the current session, but its
+    # object reference is never persisted as a restart identity.
+    desktop._placement_screen = cast(QScreen, external)
+    desktop._restore_pet_position()
     assert desktop.pet_window.geometry() == QRect(-720, 280, 160, 160)
 
     external._available = QRect(-1440, 0, 1440, 900)
@@ -231,7 +236,25 @@ def test_screen_change_restores_anchor_after_resize_unplug_and_replug(
 
     screens[:] = [primary, external]
     desktop._on_screen_added(cast(QScreen, external))
-    assert desktop.pet_window.geometry() == QRect(-800, 370, 160, 160)
+    assert desktop.pet_window.geometry() == QRect(880, 460, 160, 160)
+    desktop.shutdown()
+
+
+def test_screen_change_does_not_reposition_during_active_drag(qapp: QApplication) -> None:
+    from daemon_reborn.app.application import DesktopApplication
+
+    desktop = DesktopApplication(qapp)
+    desktop.pet_window.move(100, 100)
+    before = desktop.pet_window.pos()
+    desktop.pet_window._drag_origin = QPoint(100, 100)
+    desktop.pet_window._drag_pointer = QPoint(20, 20)
+
+    desktop._on_screen_geometry_changed(QRect(0, 0, 800, 600))
+
+    assert desktop.pet_window.is_dragging
+    assert desktop.pet_window.pos() == before
+    desktop.pet_window._drag_origin = None
+    desktop.pet_window._drag_pointer = None
     desktop.shutdown()
 
 
