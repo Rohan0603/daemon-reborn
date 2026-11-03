@@ -251,6 +251,10 @@ def test_screen_change_does_not_reposition_during_active_drag(qapp: QApplication
     desktop.pet_window._drag_pointer = QPoint(20, 20)
 
     desktop._on_screen_geometry_changed(QRect(0, 0, 800, 600))
+    primary = qapp.primaryScreen()
+    assert primary is not None
+    desktop._on_screen_added(primary)
+    desktop._on_screen_removed(primary)
 
     assert desktop.pet_window.is_dragging
     assert desktop.pet_window.pos() == before

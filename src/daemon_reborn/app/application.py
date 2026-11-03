@@ -132,6 +132,8 @@ class DesktopApplication:
 
     def _on_screen_added(self, screen: QScreen) -> None:
         self._watch_screen(screen)
+        if self.pet_window.is_dragging:
+            return
         self._restore_pet_position()
 
     def _on_screen_removed(self, screen: QScreen) -> None:
@@ -144,6 +146,8 @@ class DesktopApplication:
             self._watched_screens.remove(screen)
         if self._placement_screen is screen:
             self._placement_screen = None
+        if self.pet_window.is_dragging:
+            return
         self._restore_pet_position()
 
     def _on_screen_geometry_changed(self, _geometry: QRect) -> None:
