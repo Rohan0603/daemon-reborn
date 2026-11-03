@@ -39,22 +39,37 @@ def new_request_id() -> RequestId:
     return uuid4()
 
 
-def _freeze_json(value: object, path: str = "payload") -> JsonValue:
+def _freeze_json(
+    value: object,
+    path: str = "payload",
+    ancestors: set[int] | None = None,
+) -> JsonValue:
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError(f"{path} contains a non-finite number")
         return value
-    if isinstance(value, Mapping):
-        frozen: dict[str, JsonValue] = {}
-        for key, nested in value.items():
-            if not isinstance(key, str):
-                raise TypeError(f"{path} keys must be strings")
-            frozen[key] = _freeze_json(nested, f"{path}.{key}")
-        return MappingProxyType(frozen)
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(nested, f"{path}[{index}]") for index, nested in enumerate(value))
+    if isinstance(value, (Mapping, list, tuple)):
+        active = set() if ancestors is None else ancestors
+        identity = id(value)
+        if identity in active:
+            raise ValueError(f"{path} contains a cyclic reference")
+        active.add(identity)
+        try:
+            if isinstance(value, Mapping):
+                frozen: dict[str, JsonValue] = {}
+                for key, nested in value.items():
+                    if not isinstance(key, str):
+                        raise TypeError(f"{path} keys must be strings")
+                    frozen[key] = _freeze_json(nested, f"{path}.{key}", active)
+                return MappingProxyType(frozen)
+            return tuple(
+                _freeze_json(nested, f"{path}[{index}]", active)
+                for index, nested in enumerate(value)
+            )
+        finally:
+            active.remove(identity)
     raise TypeError(f"{path} contains unsupported value {type(value).__name__}")
 
 
@@ -158,6 +173,8 @@ class SpeechRequest:
         _require_text("text", self.text)
         if self.voice_profile is not None:
             _require_text("voice_profile", self.voice_profile)
+        if not isinstance(self.style_flags, AbstractSet):
+            raise TypeError("style_flags must be a set of strings")
         if any(not isinstance(flag, str) or not flag.strip() for flag in self.style_flags):
             raise ValueError("style_flags must contain only non-empty strings")
         object.__setattr__(self, "style_flags", frozenset(self.style_flags))

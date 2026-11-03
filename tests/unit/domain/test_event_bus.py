@@ -1,5 +1,6 @@
 """Tests for bounded delivery, overflow policy, and cancellation suppression."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -73,3 +74,18 @@ def test_request_capacity_is_bounded_and_completed_ids_are_stale() -> None:
     bus.complete_request(first_id)
 
     assert bus.publish(event("completed-response", Priority.NORMAL, first_id)) is PublishResult.DROPPED_STALE
+
+
+def test_concurrent_publishers_cannot_exceed_queue_capacity() -> None:
+    bus = BoundedEventBus(maxsize=64)
+
+    def publish_batch(worker: int) -> None:
+        for index in range(100):
+            bus.publish(event(f"{worker}-{index}", Priority.NORMAL))
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(publish_batch, range(8)))
+
+    delivered = bus.drain()
+    assert len(delivered) == 64
+    assert len({item.event_id for item in delivered}) == 64

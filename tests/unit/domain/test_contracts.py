@@ -56,6 +56,14 @@ def test_domain_event_rejects_non_json_payload_values(payload: object) -> None:
         )
 
 
+def test_domain_event_rejects_cyclic_payloads() -> None:
+    cyclic: dict[str, object] = {}
+    cyclic["self"] = cyclic
+
+    with pytest.raises(ValueError, match="cyclic"):
+        DomainEvent(event_type="activity", source="test", payload=cyclic)
+
+
 def test_domain_event_rejects_naive_timestamp_and_empty_type() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         DomainEvent(
@@ -114,3 +122,12 @@ def test_speech_request_has_correlation_id_and_normalizes_styles() -> None:
 
     with pytest.raises(ValueError, match="text"):
         SpeechRequest(request_id=request_id, text=" ")
+
+
+def test_speech_request_rejects_string_instead_of_style_set() -> None:
+    with pytest.raises(TypeError, match="set"):
+        SpeechRequest(
+            request_id=new_request_id(),
+            text="Hello.",
+            style_flags="warm",  # type: ignore[arg-type]
+        )
