@@ -255,9 +255,13 @@ class WorkerSupervisor:
                 if self._stop_requested.is_set():
                     with self._lock:
                         self._set_state_locked(SupervisorState.STOPPING)
-                    self._request_graceful_exit(process)
+                    shutdown_deadline = time.monotonic() + self._shutdown_timeout
+                    self._request_graceful_exit(process, shutdown_deadline)
                     try:
-                        exit_code = process.wait(timeout=self._shutdown_timeout)
+                        remaining = shutdown_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(process.args, self._shutdown_timeout)
+                        exit_code = process.wait(timeout=remaining)
                     except subprocess.TimeoutExpired:
                         self._terminate_tree(process, tree_guard)
                         exit_code = process.wait(timeout=max(self._shutdown_timeout, 1.0))
@@ -344,19 +348,42 @@ class WorkerSupervisor:
         self._state = state
         self._changed_at = time.monotonic()
 
-    def _request_graceful_exit(self, process: subprocess.Popen[bytes]) -> None:
-        if self._request_graceful_stop is not None:
-            try:
-                self._request_graceful_stop(process.pid)
-                return
-            except Exception as error:  # noqa: BLE001 - custom shutdown hooks are untrusted.
+    def _request_graceful_exit(
+        self,
+        process: subprocess.Popen[bytes],
+        deadline: float,
+    ) -> None:
+        hook = self._request_graceful_stop
+        if hook is not None:
+            completed = threading.Event()
+            failures: list[str] = []
+
+            def invoke_hook() -> None:
+                try:
+                    hook(process.pid)
+                except BaseException as error:  # noqa: BLE001 - contain hook failures off-thread.
+                    failures.append(type(error).__name__)
+                finally:
+                    completed.set()
+
+            threading.Thread(
+                target=invoke_hook,
+                name="worker-graceful-stop",
+                daemon=True,
+            ).start()
+            finished = completed.wait(max(0.0, deadline - time.monotonic()))
+            if not finished:
+                logger.error(
+                    "worker_graceful_stop_timed_out",
+                    extra={"event": "worker_graceful_stop_timed_out"},
+                )
+            elif failures:
                 logger.error(
                     "worker_graceful_stop_failed",
-                    extra={
-                        "event": "worker_graceful_stop_failed",
-                        "error_type": type(error).__name__,
-                    },
+                    extra={"event": "worker_graceful_stop_failed", "error_type": failures[0]},
                 )
+            else:
+                return
         try:
             if os.name == "nt":
                 process.send_signal(signal.CTRL_BREAK_EVENT)

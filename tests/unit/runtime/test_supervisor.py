@@ -6,6 +6,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -151,6 +152,37 @@ def test_graceful_stop_hook_failure_does_not_orphan_worker(
     assert supervisor.snapshot().state is SupervisorState.STOPPED
     assert "private-hook-detail" not in caplog.text
     assert "worker_graceful_stop_failed" in caplog.text
+
+
+def test_hung_graceful_stop_hook_does_not_exceed_shutdown_deadline(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hang_stop(_pid: int) -> None:
+        entered.set()
+        release.wait()
+
+    supervisor = WorkerSupervisor(
+        WorkerSpec(command=(sys.executable, "-c", "import time; time.sleep(30)")),
+        restart_policy=RestartPolicy(max_restarts=0),
+        shutdown_timeout=0.05,
+        poll_interval=0.01,
+        request_graceful_stop=hang_stop,
+    )
+    supervisor.start()
+    wait_for_state(supervisor, SupervisorState.RUNNING)
+
+    before = time.monotonic()
+    supervisor.request_stop()
+
+    assert entered.wait(timeout=1.0)
+    assert supervisor.wait_stopped(timeout=3.0)
+    assert time.monotonic() - before < 1.0
+    assert supervisor.snapshot().state is SupervisorState.STOPPED
+    assert "worker_graceful_stop_timed_out" in caplog.text
+    release.set()
 
 
 def test_crash_diagnostics_do_not_capture_worker_output(caplog: pytest.LogCaptureFixture) -> None:
