@@ -56,7 +56,10 @@ def test_cancelled_request_removes_queued_events_and_suppresses_late_events() ->
 
     bus.cancel_request(request_id)
 
-    assert bus.publish(event("late-response", Priority.URGENT, request_id)) is PublishResult.DROPPED_STALE
+    assert (
+        bus.publish(event("late-response", Priority.URGENT, request_id))
+        is PublishResult.DROPPED_STALE
+    )
     assert bus.drain() == []
 
 
@@ -73,7 +76,10 @@ def test_request_capacity_is_bounded_and_completed_ids_are_stale() -> None:
 
     bus.complete_request(first_id)
 
-    assert bus.publish(event("completed-response", Priority.NORMAL, first_id)) is PublishResult.DROPPED_STALE
+    assert (
+        bus.publish(event("completed-response", Priority.NORMAL, first_id))
+        is PublishResult.DROPPED_STALE
+    )
 
 
 def test_concurrent_publishers_cannot_exceed_queue_capacity() -> None:

@@ -82,7 +82,10 @@ class BoundedEventBus:
         if not isinstance(event, DomainEvent):
             raise TypeError("event must be a DomainEvent")
         with self._lock:
-            if event.correlation_id is not None and event.correlation_id not in self._active_requests:
+            if (
+                event.correlation_id is not None
+                and event.correlation_id not in self._active_requests
+            ):
                 return PublishResult.DROPPED_STALE
             if len(self._events) < self._maxsize:
                 self._events.append(event)
