@@ -149,6 +149,7 @@ def test_desktop_application_persists_normalized_anchor_without_screen_identity(
 
     settings_path = tmp_path / "placement.ini"
     settings = QSettings(str(settings_path), QSettings.Format.IniFormat)
+    settings.setValue("ui/petScreen", "legacy-display-name")
     first = DesktopApplication(qapp, settings)
     first.pet_window.move(100, 100)
     first._remember_pet_position()

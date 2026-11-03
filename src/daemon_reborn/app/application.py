@@ -35,6 +35,10 @@ class DesktopApplication:
         primary = QGuiApplication.primaryScreen()
         # Screen references are intentionally process-local.  QScreen.name() is
         # user-presentable and not guaranteed unique or stable across reconnects.
+        self._placement_settings.remove("ui/petScreen")
+        self._placement_settings.sync()
+        if self._placement_settings.status() != QSettings.Status.NoError:
+            logger.warning("Unable to remove the legacy persisted monitor identity")
         self._placement_screen: QScreen | None = primary
         try:
             self._placement_anchor = NormalizedAnchor(
