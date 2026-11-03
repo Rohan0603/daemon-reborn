@@ -1,0 +1,58 @@
+name: Windows CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows / Python 3.12
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      UV_LINK_MODE: copy
+      UV_NO_PROGRESS: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          version: "0.12.5"
+          enable-cache: false
+
+      - name: Install and run project checks
+        shell: pwsh
+        run: .\scripts\test.ps1
+
+      - name: Smoke-check asset manifest JSON
+        shell: pwsh
+        run: .\scripts\check_asset_manifest.ps1
+
+      - name: Check pull request evidence
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: .\scripts\check_pr_evidence.ps1
