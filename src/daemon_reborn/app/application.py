@@ -6,8 +6,9 @@ import logging
 
 from PySide6.QtCore import QRect, QSettings, Qt
 from PySide6.QtGui import QGuiApplication, QScreen
-from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+from daemon_reborn.ui.f04 import SettingsPanel, SettingsStore, SpeechBubble
 from daemon_reborn.ui.geometry import (
     NormalizedAnchor,
     ScreenArea,
@@ -30,7 +31,9 @@ class DesktopApplication:
         self.qt_application = qt_application
         self.qt_application.setQuitOnLastWindowClosed(False)
         self.pet_window = PetWindow()
+        self.bubble = SpeechBubble()
         self._placement_settings = placement_settings or QSettings("Daemon Reborn", "Daemon Reborn")
+        self._ui_settings_store = SettingsStore(QSettings("Daemon Reborn", "Daemon Reborn"))
         self._watched_screens: list[QScreen] = []
         primary = QGuiApplication.primaryScreen()
         # Screen references are intentionally process-local.  QScreen.name() is
@@ -47,7 +50,7 @@ class DesktopApplication:
             )
         except (TypeError, ValueError):
             self._placement_anchor = NormalizedAnchor(0.9, 0.9)
-        self._settings_dialog: QMessageBox | None = None
+        self._settings_dialog: SettingsPanel | None = None
         self.tray = TrayController(
             self.pet_window,
             on_settings=self.show_settings,
@@ -70,17 +73,12 @@ class DesktopApplication:
         return self.qt_application.exec()
 
     def show_settings(self) -> None:
-        """Show a clear placeholder until the settings UI lands in ORC-181."""
+        """Show the non-sensitive settings surface without taking global focus."""
         if self._settings_dialog is not None:
             self._settings_dialog.raise_()
             self._settings_dialog.activateWindow()
             return
-        dialog = QMessageBox(
-            QMessageBox.Icon.Information,
-            "Daemon Reborn Settings",
-            "Settings will be available in a future update.",
-            QMessageBox.StandardButton.Ok,
-        )
+        dialog = SettingsPanel(self._ui_settings_store)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.finished.connect(lambda _result: setattr(self, "_settings_dialog", None))
         self._settings_dialog = dialog
@@ -101,6 +99,7 @@ class DesktopApplication:
                 pass
         self._watched_screens.clear()
         self.tray.hide()
+        self.bubble.close()
         self.pet_window.shutdown()
         if self._settings_dialog is not None:
             self._settings_dialog.close()
