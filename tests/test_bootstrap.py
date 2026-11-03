@@ -15,7 +15,7 @@ def test_cli_help_exits_successfully(capsys: pytest.CaptureFixture[str]) -> None
         main(["--help"])
 
     assert error.value.code == 0
-    assert "Daemon Reborn desktop companion bootstrap" in capsys.readouterr().out
+    assert "Daemon Reborn Windows desktop companion" in capsys.readouterr().out
 
 
 def test_domain_import_does_not_load_qt(monkeypatch: pytest.MonkeyPatch) -> None:
