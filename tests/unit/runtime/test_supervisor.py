@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from daemon_reborn.runtime.supervisor import (
     WorkerSpec,
     WorkerSupervisor,
 )
+from daemon_reborn.runtime.windows_job import WindowsJobObject
 
 
 def wait_for_state(
@@ -37,14 +39,27 @@ def test_worker_spec_requires_an_executable() -> None:
 
 
 def test_diagnostic_mode_disables_external_capabilities() -> None:
-    spec = WorkerSpec(command=(sys.executable, "-c", "pass"), diagnostic=True)
+    spec = WorkerSpec(
+        command=(sys.executable, "-c", "pass"),
+        environment={"WORKER_API_TOKEN": "explicit-secret"},
+        diagnostic=True,
+    )
 
-    environment = spec.build_environment({"PATH": os.environ.get("PATH", "")})
+    environment = spec.build_environment(
+        {
+            "PATH": os.environ.get("PATH", ""),
+            "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+            "OPENAI_API_KEY": "inherited-secret",
+        }
+    )
 
+    assert environment["PATH"]
     assert environment["DAEMON_DIAGNOSTIC"] == "1"
     assert environment["DAEMON_DISABLE_LLM"] == "1"
     assert environment["DAEMON_DISABLE_TTS"] == "1"
     assert environment["DAEMON_DISABLE_SENSORS"] == "1"
+    assert "OPENAI_API_KEY" not in environment
+    assert "WORKER_API_TOKEN" not in environment
 
 
 def test_supervisor_restarts_crashing_worker_only_within_policy() -> None:
@@ -114,6 +129,30 @@ def test_graceful_stop_hook_allows_worker_to_exit_cleanly(tmp_path: Path) -> Non
     assert snapshot.last_exit_code == 0
 
 
+def test_graceful_stop_hook_failure_does_not_orphan_worker(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail_stop(_pid: int) -> None:
+        raise KeyError("private-hook-detail")
+
+    supervisor = WorkerSupervisor(
+        WorkerSpec(command=(sys.executable, "-c", "import time; time.sleep(30)")),
+        restart_policy=RestartPolicy(max_restarts=0),
+        shutdown_timeout=0.01,
+        poll_interval=0.01,
+        request_graceful_stop=fail_stop,
+    )
+    supervisor.start()
+    wait_for_state(supervisor, SupervisorState.RUNNING)
+
+    supervisor.request_stop()
+
+    assert supervisor.wait_stopped(timeout=3.0)
+    assert supervisor.snapshot().state is SupervisorState.STOPPED
+    assert "private-hook-detail" not in caplog.text
+    assert "worker_graceful_stop_failed" in caplog.text
+
+
 def test_crash_diagnostics_do_not_capture_worker_output(caplog: pytest.LogCaptureFixture) -> None:
     secret = "private-worker-output"
     supervisor = WorkerSupervisor(
@@ -133,6 +172,29 @@ def test_crash_diagnostics_do_not_capture_worker_output(caplog: pytest.LogCaptur
 
     assert secret not in caplog.text
     assert "worker_exited" in caplog.text
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process tree ownership")
+def test_windows_worker_is_suspended_until_job_assignment(tmp_path: Path) -> None:
+    marker = tmp_path / "started"
+    process = subprocess.Popen(
+        [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004,
+    )
+    job = WindowsJobObject(process)
+    try:
+        assert not marker.exists(), "worker executed before job assignment completed"
+        WindowsJobObject.resume_suspended_process(process.pid)
+        deadline = time.monotonic() + 3.0
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "worker did not resume after job assignment"
+    finally:
+        job.close()
+        process.wait(timeout=3.0)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process tree ownership")

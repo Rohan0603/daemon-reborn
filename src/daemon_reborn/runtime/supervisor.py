@@ -17,6 +17,24 @@ from types import MappingProxyType
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
+_DIAGNOSTIC_ENV_ALLOWLIST = frozenset(
+    {
+        "APPDATA",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LC_ALL",
+        "LOCALAPPDATA",
+        "PATH",
+        "PROGRAMDATA",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "WINDIR",
+    }
+)
 
 
 class _TreeGuard(Protocol):
@@ -87,6 +105,11 @@ class WorkerSpec:
         environment = dict(os.environ if base is None else base)
         environment.update(self.environment)
         if self.diagnostic:
+            environment = {
+                key: value
+                for key, value in environment.items()
+                if key.upper() in _DIAGNOSTIC_ENV_ALLOWLIST
+            }
             environment.update(
                 {
                     "DAEMON_DIAGNOSTIC": "1",
@@ -195,21 +218,32 @@ class WorkerSupervisor:
             process: subprocess.Popen[bytes] | None = None
             tree_guard: _TreeGuard | None = None
             try:
-                process = subprocess.Popen(
-                    self._spec.command,
-                    cwd=self._spec.cwd,
-                    env=self._spec.build_environment(),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                    start_new_session=os.name != "nt",
-                    creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
-                )
                 if os.name == "nt":
                     from daemon_reborn.runtime.windows_job import WindowsJobObject
 
+                    process = subprocess.Popen(
+                        self._spec.command,
+                        cwd=self._spec.cwd,
+                        env=self._spec.build_environment(),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        close_fds=True,
+                        creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004),
+                    )
                     tree_guard = WindowsJobObject(process)
+                    WindowsJobObject.resume_suspended_process(process.pid)
+                else:
+                    process = subprocess.Popen(
+                        self._spec.command,
+                        cwd=self._spec.cwd,
+                        env=self._spec.build_environment(),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        close_fds=True,
+                        start_new_session=True,
+                    )
                 with self._lock:
                     self._pid = process.pid
                     if not self._stop_requested.is_set():
@@ -255,7 +289,7 @@ class WorkerSupervisor:
                     with self._lock:
                         self._set_state_locked(SupervisorState.STOPPED)
                     return
-            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            except Exception as error:  # noqa: BLE001 - cleanup must contain all worker failures.
                 if process is not None and process.poll() is None:
                     self._terminate_tree(process, tree_guard)
                     process.wait(timeout=max(self._shutdown_timeout, 1.0))
@@ -280,8 +314,26 @@ class WorkerSupervisor:
                         self._set_state_locked(SupervisorState.STOPPED)
                     return
             finally:
-                if process is not None and tree_guard is not None:
-                    self._close_tree_guard(tree_guard)
+                if process is not None:
+                    try:
+                        if tree_guard is not None:
+                            self._close_tree_guard(tree_guard)
+                        if process.poll() is None:
+                            self._terminate_tree(process, tree_guard)
+                            process.wait(timeout=max(self._shutdown_timeout, 1.0))
+                    except Exception as cleanup_error:  # noqa: BLE001 - final cleanup is best-effort.
+                        logger.error(
+                            "worker_cleanup_failed",
+                            extra={
+                                "event": "worker_cleanup_failed",
+                                "error_type": type(cleanup_error).__name__,
+                            },
+                        )
+                        if process.poll() is None:
+                            process.kill()
+                            process.wait()
+                        with self._lock:
+                            self._set_state_locked(SupervisorState.FAILED)
                 with self._lock:
                     self._pid = None
 
@@ -294,8 +346,17 @@ class WorkerSupervisor:
 
     def _request_graceful_exit(self, process: subprocess.Popen[bytes]) -> None:
         if self._request_graceful_stop is not None:
-            self._request_graceful_stop(process.pid)
-            return
+            try:
+                self._request_graceful_stop(process.pid)
+                return
+            except Exception as error:  # noqa: BLE001 - custom shutdown hooks are untrusted.
+                logger.error(
+                    "worker_graceful_stop_failed",
+                    extra={
+                        "event": "worker_graceful_stop_failed",
+                        "error_type": type(error).__name__,
+                    },
+                )
         try:
             if os.name == "nt":
                 process.send_signal(signal.CTRL_BREAK_EVENT)
