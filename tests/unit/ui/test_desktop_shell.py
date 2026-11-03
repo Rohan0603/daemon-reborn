@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from importlib.util import find_spec
+from pathlib import Path
+from typing import cast
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRect, QSettings, Qt
+from PySide6.QtGui import QGuiApplication, QScreen
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 
@@ -37,6 +41,8 @@ def test_pet_window_is_small_translucent_and_does_not_take_focus(qapp: QApplicat
     assert flags & Qt.WindowType.WindowDoesNotAcceptFocus
     assert pet.width() < qapp.primaryScreen().geometry().width()
     assert pet.height() < qapp.primaryScreen().geometry().height()
+    assert pet.mask().contains(pet.rect().center())
+    assert not pet.mask().contains(pet.rect().topLeft())
 
     pet.shutdown()
 
@@ -56,6 +62,26 @@ def test_close_hides_pet_but_shutdown_closes_it(qapp: QApplication) -> None:
 
     assert not pet.isVisible()
     assert pet.is_shutdown
+
+
+def test_pet_drag_moves_window_and_notifies_placement_owner(qapp: QApplication) -> None:
+    from daemon_reborn.ui.pet import PetWindow
+
+    pet = PetWindow()
+    pet.move(100, 100)
+    changed: list[bool] = []
+    pet.set_position_changed_callback(lambda: changed.append(True))
+    pet.show()
+    qapp.processEvents()
+    original = pet.pos()
+
+    QTest.mousePress(pet, Qt.MouseButton.LeftButton, pos=QPoint(80, 80))
+    QTest.mouseMove(pet, QPoint(105, 95), 10)
+    QTest.mouseRelease(pet, Qt.MouseButton.LeftButton, pos=QPoint(105, 95))
+
+    assert pet.pos() != original
+    assert changed == [True]
+    pet.shutdown()
 
 
 def test_tray_actions_reopen_pet_open_settings_and_request_exit(qapp: QApplication) -> None:
@@ -114,6 +140,99 @@ def test_desktop_application_shutdown_hides_owned_ui(qapp: QApplication) -> None
     assert not desktop.pet_window.isVisible()
     assert not desktop.tray.icon.isVisible()
     assert desktop.pet_window.is_shutdown
+
+
+def test_desktop_application_persists_normalized_screen_anchor(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    from daemon_reborn.app.application import DesktopApplication
+
+    settings_path = tmp_path / "placement.ini"
+    settings = QSettings(str(settings_path), QSettings.Format.IniFormat)
+    first = DesktopApplication(qapp, settings)
+    first.pet_window.move(100, 100)
+    first._remember_pet_position()
+    saved_screen = settings.value("ui/petScreen")
+    saved_x = settings.value("ui/petAnchorX")
+    saved_y = settings.value("ui/petAnchorY")
+    first.shutdown()
+
+    second = DesktopApplication(qapp, QSettings(str(settings_path), QSettings.Format.IniFormat))
+
+    assert second._placement_screen == saved_screen
+    assert second._placement_anchor.x == float(saved_x)
+    assert second._placement_anchor.y == float(saved_y)
+    second.shutdown()
+
+
+def test_screen_change_restores_anchor_after_resize_unplug_and_replug(
+    qapp: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from daemon_reborn.app.application import DesktopApplication
+
+    class SignalStub:
+        def __init__(self) -> None:
+            self._slots: list[Callable[..., None]] = []
+
+        def connect(self, slot: Callable[..., None]) -> None:
+            self._slots.append(slot)
+
+        def disconnect(self, slot: Callable[..., None]) -> None:
+            self._slots.remove(slot)
+
+        def emit(self, *args: object) -> None:
+            for slot in tuple(self._slots):
+                slot(*args)
+
+    class ScreenStub:
+        def __init__(self, name: str, available: QRect) -> None:
+            self._name = name
+            self._available = available
+            self.geometryChanged = SignalStub()
+            self.availableGeometryChanged = SignalStub()
+
+        def name(self) -> str:
+            return self._name
+
+        def availableGeometry(self) -> QRect:
+            return self._available
+
+    primary = ScreenStub("primary", QRect(0, 0, 1920, 1080))
+    external = ScreenStub("external", QRect(-1280, 0, 1280, 720))
+    screens = [primary, external]
+    monkeypatch.setattr(QGuiApplication, "screens", staticmethod(lambda: screens))
+    monkeypatch.setattr(QGuiApplication, "primaryScreen", staticmethod(lambda: primary))
+    monkeypatch.setattr(
+        QGuiApplication,
+        "screenAt",
+        staticmethod(
+            lambda point: next(
+                (screen for screen in screens if screen.availableGeometry().contains(point)), None
+            )
+        ),
+    )
+    settings = QSettings(str(tmp_path / "screen-change.ini"), QSettings.Format.IniFormat)
+    settings.setValue("ui/petScreen", "external")
+    settings.setValue("ui/petAnchorX", 0.5)
+    settings.setValue("ui/petAnchorY", 0.5)
+
+    desktop = DesktopApplication(qapp, settings)
+    assert desktop.pet_window.geometry() == QRect(-720, 280, 160, 160)
+
+    external._available = QRect(-1440, 0, 1440, 900)
+    external.availableGeometryChanged.emit(external._available)
+    assert desktop.pet_window.geometry() == QRect(-800, 370, 160, 160)
+
+    screens[:] = [primary]
+    desktop._on_screen_removed(cast(QScreen, external))
+    assert desktop.pet_window.geometry() == QRect(880, 460, 160, 160)
+
+    screens[:] = [primary, external]
+    desktop._on_screen_added(cast(QScreen, external))
+    assert desktop.pet_window.geometry() == QRect(-800, 370, 160, 160)
+    desktop.shutdown()
 
 
 def test_run_fails_cleanly_when_system_tray_is_unavailable(
