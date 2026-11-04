@@ -61,3 +61,12 @@ def test_delayed_tick_is_bounded() -> None:
     physics.step(10.0)
 
     assert physics.position.y < 100.0
+
+
+def test_invalid_config_is_rejected() -> None:
+    try:
+        PhysicsConfig(substep=0.0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-positive substep must be rejected")

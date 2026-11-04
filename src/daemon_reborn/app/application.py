@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QRect, QSettings, Qt
+from PySide6.QtCore import QRect, QSettings, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QScreen
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -32,6 +32,9 @@ class DesktopApplication:
         self.qt_application.setQuitOnLastWindowClosed(False)
         self.pet_window = PetWindow()
         self.bubble = SpeechBubble()
+        self._physics_timer = QTimer(self.qt_application)
+        self._physics_timer.setInterval(33)
+        self._physics_timer.timeout.connect(self._advance_pet_physics)
         self._placement_settings = placement_settings or QSettings("Daemon Reborn", "Daemon Reborn")
         self._ui_settings_store = SettingsStore(QSettings("Daemon Reborn", "Daemon Reborn"))
         self._watched_screens: list[QScreen] = []
@@ -69,6 +72,7 @@ class DesktopApplication:
             logger.error("System tray is unavailable; refusing to start an inaccessible shell")
             return 1
         self.tray.show()
+        self._physics_timer.start()
         self.pet_window.show()
         return self.qt_application.exec()
 
@@ -99,6 +103,7 @@ class DesktopApplication:
                 pass
         self._watched_screens.clear()
         self.tray.hide()
+        self._physics_timer.stop()
         self.bubble.close()
         self.pet_window.shutdown()
         if self._settings_dialog is not None:
@@ -160,7 +165,16 @@ class DesktopApplication:
             return
         _screen, area = selection
         geometry = place_on_screen(area, self._placement_anchor, self.pet_window.size())
+        self.pet_window.set_physics_bounds(area.available)
         self.pet_window.move(geometry.topLeft())
+
+    def _advance_pet_physics(self) -> None:
+        selection = self._screen_and_area()
+        if selection is None:
+            return
+        _screen, area = selection
+        self.pet_window.set_physics_bounds(area.available)
+        self.pet_window.advance_physics(0.033)
 
     def _remember_pet_position(self) -> None:
         point = self.pet_window.frameGeometry().center()

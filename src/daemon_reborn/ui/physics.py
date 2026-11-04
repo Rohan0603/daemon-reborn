@@ -44,6 +44,12 @@ class PhysicsConfig:
     max_delta: float = 0.12
     substep: float = 1.0 / 120.0
 
+    def __post_init__(self) -> None:
+        if self.gravity < 0.0 or self.chase_speed < 0.0:
+            raise ValueError("gravity and chase_speed must be non-negative")
+        if self.max_delta <= 0.0 or self.substep <= 0.0:
+            raise ValueError("max_delta and substep must be positive")
+
 
 class PetPhysics:
     """Fixed-step pet motion with drag, gravity, chase and safe perimeter clamps."""
@@ -69,6 +75,10 @@ class PetPhysics:
 
     def set_bounds(self, bounds: PhysicsBounds) -> None:
         self.bounds = bounds.normalized()
+        self._clamp_position()
+
+    def set_position(self, position: Vec2) -> None:
+        self.position = position
         self._clamp_position()
 
     def begin_drag(self, pointer: Vec2) -> None:
@@ -98,7 +108,9 @@ class PetPhysics:
     def _step_once(self, dt: float, target: Vec2 | None) -> None:
         if target is not None:
             direction = target.x - (self.position.x + self.size.x / 2.0)
-            if abs(direction) < 0.5:
+            max_move = self.config.chase_speed * dt
+            if abs(direction) <= max_move:
+                self.position = Vec2(self.position.x + direction, self.position.y)
                 self.velocity = Vec2(0.0, self.velocity.y)
             else:
                 self.velocity = Vec2(copysign(self.config.chase_speed, direction), self.velocity.y)
