@@ -28,7 +28,7 @@ def test_adapts_only_valid_complete_snapshot(tmp_path: Path) -> None:
 
     assert manifest.size == (64, 64)
     assert [(frame.id, frame.duration_ms) for frame in manifest.frames] == [(0, 100), (1, 160)]
-    assert [(tag.name, tag.from_frame, tag.to_frame) for tag in manifest.tags] == [("idle", 1, 2)]
+    assert [(tag.name, tag.from_frame, tag.to_frame) for tag in manifest.tags] == [("idle", 0, 1)]
 
 
 def test_rejects_duplicate_tag_names(tmp_path: Path) -> None:
@@ -77,12 +77,14 @@ def test_adapts_captured_pixelorama_v124_export_fixture() -> None:
     assert manifest.size == (64, 64)
     assert [frame.duration_ms for frame in manifest.frames] == [100, 160, 120, 200]
     assert [(tag.name, tag.from_frame, tag.to_frame) for tag in manifest.tags] == [
-        ("idle", 1, 2),
-        ("blink", 3, 4),
+        ("idle", 0, 1),
+        ("blink", 2, 3),
     ]
 
 
-@pytest.mark.parametrize("duration", [float("nan"), float("inf"), -float("inf"), 0.0001])
+@pytest.mark.parametrize(
+    "duration", [float("nan"), float("inf"), -float("inf"), 0.0001, 1e308, 10**400]
+)
 def test_rejects_non_finite_or_sub_millisecond_duration(tmp_path: Path, duration: float) -> None:
     snapshot = export_snapshot()
     frames = snapshot["frames"]
@@ -96,3 +98,23 @@ def test_rejects_non_finite_or_sub_millisecond_duration(tmp_path: Path, duration
 
     with pytest.raises(ManifestError, match="invalid duration"):
         load_runtime_manifest(path)
+
+
+def test_normalizes_pixelorama_one_based_tag_ranges_to_frame_ids(tmp_path: Path) -> None:
+    path = tmp_path / "ranges.json"
+    path.write_text(json.dumps(export_snapshot()), encoding="utf-8")
+
+    manifest = load_runtime_manifest(path)
+
+    assert [(tag.from_frame, tag.to_frame) for tag in manifest.tags] == [(0, 1)]
+
+
+def test_adapts_captured_fixture_with_zero_based_tag_ranges() -> None:
+    path = Path(__file__).parents[2] / "fixtures" / "orc166_pixelorama_v1_2_4_export.json"
+
+    manifest = load_runtime_manifest(path)
+
+    assert [(tag.name, tag.from_frame, tag.to_frame) for tag in manifest.tags] == [
+        ("idle", 0, 1),
+        ("blink", 2, 3),
+    ]

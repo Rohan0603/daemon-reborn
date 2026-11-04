@@ -70,11 +70,17 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
             raise ManifestError(f"frame {frame_id} must be an object")
         duration = raw_frame.get("duration")
         cels = raw_frame.get("cels")
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            raise ManifestError(f"frame {frame_id} has invalid duration")
+        try:
+            duration_value = float(duration)
+            duration_ms = round(duration_value * 1000)
+        except (OverflowError, ValueError) as exc:
+            raise ManifestError(f"frame {frame_id} has invalid duration") from exc
         if (
-            isinstance(duration, bool)
-            or not isinstance(duration, (int, float))
-            or not math.isfinite(float(duration))
-            or duration <= 0
+            not math.isfinite(duration_value)
+            or duration_value <= 0
+            or not 1 <= duration_ms <= 2_147_483_647
         ):
             raise ManifestError(f"frame {frame_id} has invalid duration")
         if not isinstance(cels, list) or not cels:
@@ -85,9 +91,6 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
             match = _IMAGE_SIZE.fullmatch(str(cel.get("image_size", "")))
             if not match or (int(match[1]), int(match[2])) != (width, height):
                 raise ManifestError(f"frame {frame_id} has invalid image size")
-        duration_ms = round(float(duration) * 1000)
-        if duration_ms < 1:
-            raise ManifestError(f"frame {frame_id} has invalid duration")
         frames.append(RuntimeFrame(frame_id, duration_ms))
 
     ranges: list[tuple[str, int, int]] = []
@@ -121,7 +124,7 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
     return RuntimeManifest(
         (width, height),
         tuple(frames),
-        tuple(RuntimeTag(name, begin, end) for name, begin, end in ranges),
+        tuple(RuntimeTag(name, begin - 1, end - 1) for name, begin, end in ranges),
     )
 
 

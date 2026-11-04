@@ -5,8 +5,9 @@ Tracking: [ORC-259](https://linear.app/agtorchestrator/issue/ORC-259/w01-run-nat
 The Pixelorama JSON sidecar is an editor/export snapshot, not a Daemon runtime
 manifest. `daemon_reborn.assets.adapter.load_runtime_manifest` is a JSON-sidecar
 validation boundary: it reads a complete JSON file, validates the dimensions,
-frame durations, cel sizes, tag names and frame ranges, preserves those ranges
-in an immutable runtime manifest, and rejects invalid data. The caller must
+frame durations, cel sizes, tag names and frame ranges, converts Pixelorama's
+one-based ranges to the manifest's zero-based frame IDs, and preserves those
+ranges in an immutable runtime manifest. The caller must
 stage and verify both the PNG and JSON outputs, process exit status, and file
 completeness before calling this JSON-only function; this module does not infer
 or check an atlas path.
