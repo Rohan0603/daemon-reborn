@@ -27,12 +27,14 @@ class FakeClock:
 
 @pytest.mark.parametrize(
     ("pose", "activity", "emotion", "reaction"),
-    list(product(
-        ("idle", "chase", "fall", "drag"),
-        ("idle", "thinking", "speaking"),
-        ("neutral", "happy", "sad"),
-        ("none", "surprised"),
-    )),
+    list(
+        product(
+            ("idle", "chase", "fall", "drag"),
+            ("idle", "thinking", "speaking"),
+            ("neutral", "happy", "sad"),
+            ("none", "surprised"),
+        )
+    ),
 )
 def test_axes_are_orthogonal_and_replayable(
     pose: str, activity: str, emotion: str, reaction: str
@@ -46,7 +48,12 @@ def test_axes_are_orthogonal_and_replayable(
         policy.apply(BehaviorCommand("reaction", reaction, ttl_seconds=2.0))
     expected = (pose, activity, emotion, reaction)
     snapshot = policy.snapshot()
-    assert (snapshot.physical_state, snapshot.activity, snapshot.emotion, snapshot.reaction) == expected
+    assert (
+        snapshot.physical_state,
+        snapshot.activity,
+        snapshot.emotion,
+        snapshot.reaction,
+    ) == expected
     assert snapshot.occurred_at == clock.wall()
     assert policy.snapshot() == snapshot
 
@@ -67,13 +74,16 @@ def test_reaction_queue_is_fifo_and_bounded() -> None:
     clock = FakeClock()
     policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=clock.wall, max_pending=2)
     policy.apply(BehaviorCommand("reaction", "surprised", ttl_seconds=1))
-    policy.apply(BehaviorCommand("reaction", "celebrate", ttl_seconds=1,
-                                 interrupt=InterruptPolicy.QUEUE))
-    policy.apply(BehaviorCommand("reaction", "disappointed", ttl_seconds=1,
-                                 interrupt=InterruptPolicy.QUEUE))
+    policy.apply(
+        BehaviorCommand("reaction", "celebrate", ttl_seconds=1, interrupt=InterruptPolicy.QUEUE)
+    )
+    policy.apply(
+        BehaviorCommand("reaction", "disappointed", ttl_seconds=1, interrupt=InterruptPolicy.QUEUE)
+    )
     with pytest.raises(OverflowError, match="reaction queue"):
-        policy.apply(BehaviorCommand("reaction", "celebrate", ttl_seconds=1,
-                                     interrupt=InterruptPolicy.QUEUE))
+        policy.apply(
+            BehaviorCommand("reaction", "celebrate", ttl_seconds=1, interrupt=InterruptPolicy.QUEUE)
+        )
     clock.advance(1.1)
     assert policy.snapshot().reaction == "celebrate"
     clock.advance(1.1)
@@ -87,8 +97,15 @@ def test_lower_priority_or_never_interrupt_does_not_preempt() -> None:
     policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=clock.wall)
     policy.apply(BehaviorCommand("reaction", "surprised", priority=Priority.HIGH, ttl_seconds=2))
     policy.apply(BehaviorCommand("reaction", "celebrate", priority=Priority.LOW, ttl_seconds=2))
-    policy.apply(BehaviorCommand("reaction", "disappointed", priority=Priority.URGENT,
-                                 ttl_seconds=2, interrupt=InterruptPolicy.NEVER))
+    policy.apply(
+        BehaviorCommand(
+            "reaction",
+            "disappointed",
+            priority=Priority.URGENT,
+            ttl_seconds=2,
+            interrupt=InterruptPolicy.NEVER,
+        )
+    )
     assert policy.snapshot().reaction == "surprised"
     clock.advance(2.1)
     assert policy.snapshot().reaction == "none"
@@ -110,8 +127,9 @@ def test_cancel_discards_temporary_reactions_without_affecting_other_axes() -> N
     policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=clock.wall)
     policy.apply(BehaviorCommand("physical", "drag"))
     policy.apply(BehaviorCommand("reaction", "surprised", ttl_seconds=3))
-    policy.apply(BehaviorCommand("reaction", "celebrate", ttl_seconds=3,
-                                 interrupt=InterruptPolicy.QUEUE))
+    policy.apply(
+        BehaviorCommand("reaction", "celebrate", ttl_seconds=3, interrupt=InterruptPolicy.QUEUE)
+    )
     policy.cancel_reactions()
     clock.advance(15)
     assert policy.snapshot().reaction == "none"
@@ -121,8 +139,10 @@ def test_cancel_discards_temporary_reactions_without_affecting_other_axes() -> N
 @pytest.mark.parametrize(
     ("dimension", "value"),
     [
-        ("physical", "teleport"), ("activity", "tool_execute"),
-        ("emotion", "override_permissions"), ("reaction", "run_shell"),
+        ("physical", "teleport"),
+        ("activity", "tool_execute"),
+        ("emotion", "override_permissions"),
+        ("reaction", "run_shell"),
         ("invalid", "idle"),
     ],
 )
