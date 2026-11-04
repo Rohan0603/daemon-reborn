@@ -106,12 +106,13 @@ class SpritePlayer:
 
     def play(self, clip_name: str, *, now: float | None = None) -> int:
         """Interrupt the current clip and start a fresh generation."""
+        started_at = self._clock() if now is None else self._validate_timestamp(now)
         self._clip = self._clips.get(clip_name, self._clips[self._fallback])
         self._generation += 1
         self._stopped = False
         self._paused_at = None
         self._paused_elapsed = 0.0
-        self._started_at = self._clock() if now is None else self._validate_timestamp(now)
+        self._started_at = started_at
         return self._generation
 
     def interrupt(self, generation: int, *, fallback: bool = True) -> int:
@@ -135,8 +136,9 @@ class SpritePlayer:
             self._paused_at = None
 
     def reset(self, *, now: float | None = None) -> None:
+        started_at = self._clock() if now is None else self._validate_timestamp(now)
         self._generation += 1
-        self._started_at = self._clock() if now is None else self._validate_timestamp(now)
+        self._started_at = started_at
         self._paused_at = None
         self._paused_elapsed = 0.0
         self._stopped = False

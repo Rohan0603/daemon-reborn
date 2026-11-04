@@ -86,8 +86,10 @@ def test_unknown_clip_falls_back_and_reset_is_deterministic() -> None:
 def test_injected_timestamps_must_be_finite(method: str) -> None:
     player = SpritePlayer([clip("idle")], fallback="idle", clock=lambda: 0.0)
     if method == "play":
+        generation = player.generation
         with pytest.raises(ValueError):
             player.play("idle", now=float("inf"))
+        assert player.generation == generation
     elif method == "pause":
         with pytest.raises(ValueError):
             player.pause(now=float("nan"))
@@ -96,5 +98,7 @@ def test_injected_timestamps_must_be_finite(method: str) -> None:
         with pytest.raises(ValueError):
             player.resume(now=float("inf"))
     else:
+        generation = player.generation
         with pytest.raises(ValueError):
             player.reset(now=float("nan"))
+        assert player.generation == generation
