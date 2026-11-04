@@ -156,7 +156,8 @@ class BehaviorPolicy:
             if command.priority >= self._axis_priority[command.dimension]:
                 self._axes[command.dimension] = command.value
                 self._axis_priority[command.dimension] = (
-                    Priority.NORMAL if command.value == _REST[command.dimension]
+                    Priority.NORMAL
+                    if command.value == _REST[command.dimension]
                     else command.priority
                 )
             return self._snapshot_at()
