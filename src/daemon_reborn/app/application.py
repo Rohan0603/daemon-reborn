@@ -172,14 +172,27 @@ class DesktopApplication:
         selection = self._screen_and_area()
         if selection is None:
             return
-        _screen, area = selection
+        placement_screen, area = selection
+        cursor = QCursor.pos()
         if self.pet_window.is_dragging:
             primary = QGuiApplication.primaryScreen()
             virtual = primary.virtualGeometry() if primary is not None else area.available
             self.pet_window.set_physics_bounds(virtual)
         else:
-            self.pet_window.set_physics_bounds(area.available)
-        self.pet_window.advance_physics(0.033, QCursor.pos())
+            cursor_screen = QGuiApplication.screenAt(cursor)
+            pet_screen = QGuiApplication.screenAt(self.pet_window.frameGeometry().center())
+            if cursor_screen is not None and (
+                cursor_screen is not placement_screen or pet_screen is not cursor_screen
+            ):
+                # Use the virtual desktop only while crossing displays. Once the
+                # pet reaches the target display, the next tick restores its
+                # taskbar-safe available geometry.
+                primary = QGuiApplication.primaryScreen()
+                virtual = primary.virtualGeometry() if primary is not None else area.available
+                self.pet_window.set_physics_bounds(virtual)
+            else:
+                self.pet_window.set_physics_bounds(area.available)
+        self.pet_window.advance_physics(0.033, cursor)
 
     def _remember_pet_position(self) -> None:
         point = self.pet_window.frameGeometry().center()
