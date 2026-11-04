@@ -1,0 +1,39 @@
+{
+  "provenance": "Generated original synthetic placeholder by this repository script; no imported art",
+  "format": "Aseprite RGBA 32-bit import candidate (NOT a native Pixelorama .pxo)",
+  "size": [
+    64,
+    64
+  ],
+  "durations_ms": [
+    100,
+    160,
+    120,
+    200
+  ],
+  "tags": [
+    {
+      "name": "idle",
+      "from_frame_0_based": 0,
+      "to_frame_0_based": 1
+    },
+    {
+      "name": "blink",
+      "from_frame_0_based": 2,
+      "to_frame_0_based": 3
+    }
+  ],
+  "alpha": "Includes fully transparent and fully opaque pixels",
+  "image_file_sha256": "05eaf29872159428fadb1bfbc9b8e0008037d32bee4df4789ec3cb3065888bad",
+  "pixel_sha256": [
+    "98e38a9357132e8a12d2ffa2eb283c299f723b8fa9df5920a24182825a51eb23",
+    "ac6f866d64d59ad38b43d837358bf0644be0a2060da7326a74f150f65ddd22ce",
+    "e5e86cde548165cb4c2cde334d29c2b9f8234e301bad37111203c684594f3366",
+    "bd16722b1ef873cdbc36491dedede8514e84a930aab76d19d1d8d655aa33dd72"
+  ],
+  "foot_anchor": [
+    32,
+    54
+  ],
+  "validation": "Aseprite binary structural checks PASS; Pixelorama import/.pxo/export NOT RUN"
+}
