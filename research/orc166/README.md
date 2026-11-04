@@ -1,6 +1,6 @@
 # ORC-166 — original Pixelorama qualification fixture (research, not production)
 
-Status: **STRUCTURAL GENERATOR PASS; PIXELORAMA APPLICATION TEST NOT RUN**.
+Status: **STRUCTURAL GENERATOR PASS; NATIVE POSITIVE ROUND-TRIP PASS; NEGATIVE/POLICY GATES OPEN**.
 
 ## Evidence baseline
 
@@ -9,16 +9,16 @@ Status: **STRUCTURAL GENERATOR PASS; PIXELORAMA APPLICATION TEST NOT RUN**.
 - This script makes an **Aseprite import candidate**, not a Pixelorama-native editable .pxo. It creates original synthetic art. **It does not qualify the Pixelorama importer or CLI.**
 - Sources: [Aseprite file format specification](https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md), [Pixelorama import support](https://pixelorama.org/user_manual/Import/), [Pixelorama .pxo format](https://pixelorama.org/concepts/project/), [Pixelorama CLI](https://pixelorama.org/user_manual/cli/), [Pixelorama v1.2.4](https://github.com/Orama-Interactive/Pixelorama/releases/tag/v1.2.4).
 - Existing ORC-166 Windows evidence: Pixelorama v1.2.4 ZIP SHA-256 8CE63C264338B88FD36527F8EDB3B7F6BBA614D92451EFC406EF7CE45B41DA85; one official fixture had identical repeated PNG bytes, two other official fixtures crashed 0xC0000005, and one successful export required process termination. Do not classify these failures as passing.
+- Native positive evidence (2026-11-04) is recorded in native-roundtrip-evidence.md: Windows 11 build 26200, Pixelorama v1.2.4, native editable .pxo SHA-256 6F675C9F6DEFCB01CD8EB3B9E07CC39C2D9F46C5B9E12B592CD4145675299458, and two deterministic 256×64 RGBA exports sharing SHA-256 B5979C701DF2DA389D0C0CCB7246E518C4A2BC9632DB67A0E88ABD0566F497BF. The export manifest preserved four durations and the idle/blink tags; only the documented output-directory field differed.
 
-## Required Windows round-trip (NOT RUN)
+## Required Windows round-trip and negative matrix
 
-1. On disposable Windows 10/11, pin Pixelorama v1.2.4 official artifact, verify ZIP SHA and binary help/version; record exact Windows build, binary path/hash.
-2. Run py -3.12 research\orc166\generate_original_fixture.py and compare emitted SHA-256; if mismatch, stop and investigate.
-3. Open generated .aseprite **with Pixelorama**; inspect 4 frames, named tags, differing durations, 64×64 canvas and alpha. Save from Pixelorama as original_ghost_64x64.pxo with blended images included. Attach original editable .pxo and SHA-256. If import fails/changes semantics, block.
-4. Against the pinned binary, test exact CLI option ordering, for example: & $Pixelorama --headless --quit -- --export --spritesheet --json --output "$Output\run1\atlas.png" "$Fixture\original_ghost_64x64.pxo". Repeat in run2. Record stdout/stderr, return codes and any timeout/manual termination. **Killed/timeout process is FAILURE by default even if output exists**, until an explicit reviewed policy governs it.
-5. Compare decoded PNG pixels, RGBA/alpha, atlas dimensions/rect mapping and file hashes. Canonicalize **only documented absolute output-directory differences** in JSON; fail on any other semantic difference. Compare tags/frame IDs/durations/order to generated/expected.json. Retain raw and normalized JSON.
-6. Negative cases: corrupt/truncated .pxo, missing/unreadable input, unwritable output, unsupported scale/option, duplicate or missing tag, missing JSON. Each must refuse a success manifest and avoid promoting partial files.
-7. Publish exact observed Windows versions, exit codes, timing, hashes and errors; propose allowlisted JSON-to-runtime adapter contract under ORC-185. Independent review and owner approval are required for any timeout handling exception.
+1. The pinned Windows artifact, exact host/build, binary version, and archive hash are recorded in native-roundtrip-evidence.md.
+2. The generated .aseprite was opened with Pixelorama; four frames, named tags, differing durations, 64×64 canvas and alpha were inspected. Pixelorama saved original_ghost_64x64.pxo with blended images included; the editable artifact and hash are attached.
+3. Against the pinned binary, two exact CLI exports completed with exit code 0 and no timeout. Record stdout/stderr, return codes and any timeout/manual termination. **Killed/timeout process is FAILURE by default even if output exists**, until an explicit reviewed policy governs it.
+4. Compare decoded PNG pixels, RGBA/alpha, atlas dimensions/rect mapping and file hashes. Canonicalize **only documented absolute output-directory differences** in JSON; fail on any other semantic difference. Compare tags/frame IDs/durations/order to generated/expected.json. Retain raw and normalized JSON.
+5. Negative cases remain open. Observed: truncated .pxo exited 0 with an `untitled.json` sidecar; missing .pxo exceeded the 15-second harness timeout; unsupported option exited 0 while logging `Unknown option`; unwritable output, duplicate/missing tag, and missing JSON cases are NOT RUN. Each must refuse a success manifest and avoid promoting partial files.
+6. Publish exact observed Windows versions, exit codes, timing, hashes and errors; propose allowlisted JSON-to-runtime adapter contract under ORC-185. Independent review and owner approval are required for any timeout handling exception.
 
 ## Fail-closed acceptance (proposal, not approval)
 

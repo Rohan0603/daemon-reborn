@@ -1,8 +1,8 @@
 # ORC-166 native Pixelorama round-trip evidence
 
-Date: 2026-11-04  
-Host: Windows 11 build 26200  
-Pixelorama: v1.2.4-stable, official Windows 64-bit archive  
+Date: 2026-11-04
+Host: Windows 11 build 26200
+Pixelorama: v1.2.4-stable, official Windows 64-bit archive
 Archive SHA-256: `8CE63C264338B88FD36527F8EDB3B7F6BBA614D92451EFC406EF7CE45B41DA85`
 
 ## Positive path
