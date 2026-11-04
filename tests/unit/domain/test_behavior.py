@@ -6,6 +6,7 @@ from itertools import product
 
 import pytest
 
+from daemon_reborn import domain
 from daemon_reborn.domain import behavior
 from daemon_reborn.domain.behavior import BehaviorCommand, BehaviorPolicy
 from daemon_reborn.domain.contracts import InterruptPolicy, Priority
@@ -172,6 +173,11 @@ def test_clock_rollback_fails_before_mutating_state() -> None:
         policy.apply(BehaviorCommand("activity", "speaking"))
     clock.advance(4)
     assert policy.snapshot().activity == "thinking"
+
+
+def test_domain_package_exports_behavior_public_contracts() -> None:
+    assert domain.BehaviorCommand is BehaviorCommand
+    assert domain.BehaviorPolicy is BehaviorPolicy
 
 
 def test_model_and_qt_modules_are_not_domain_dependencies() -> None:
