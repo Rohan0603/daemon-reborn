@@ -1,0 +1,16 @@
+{
+  "pixelorama_version": "v1.2.4-stable",
+  "size_x": 64,
+  "size_y": 64,
+  "frames": [
+    {"duration": 0.1, "cels": [{"image_size": "Vector2i(64, 64)"}]},
+    {"duration": 0.16, "cels": [{"image_size": "Vector2i(64, 64)"}]},
+    {"duration": 0.12, "cels": [{"image_size": "Vector2i(64, 64)"}]},
+    {"duration": 0.2, "cels": [{"image_size": "Vector2i(64, 64)"}]}
+  ],
+  "tags": [
+    {"name": "idle", "from": 1, "to": 2, "color": "ffffffff"},
+    {"name": "blink", "from": 3, "to": 4, "color": "ffffffff"}
+  ],
+  "export_profile": {"export_json": "true"}
+}
