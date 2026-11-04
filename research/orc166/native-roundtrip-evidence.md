@@ -27,6 +27,7 @@ Pixelorama.exe --headless --display-driver headless --audio-driver Dummy --rende
 - Truncated `.pxo`: process exited `0` but emitted an `untitled.json` sidecar; this is a fail-closed defect requiring adapter validation.
 - Missing `.pxo`: process exceeded the 15-second harness timeout; no success may be promoted.
 - Unsupported option: process exited `0` while logging `Unknown option`; wrapper must inspect output and reject success.
-- Unwritable-output coverage remains NOT RUN.
+- Unwritable output: export targeted protected `C:\Windows\System32\orc166-atlas.png`; process exited `0` but produced no PNG or JSON. Wrapper must reject success when required outputs are absent.
+- Duplicate/missing tag and missing JSON cases remain NOT RUN.
 
 Conclusion: native import/save and deterministic positive export are demonstrated, but ORC-166 remains In Review until the negative-path failure policy and runtime-manifest adapter are independently accepted.
