@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import copysign
+from math import copysign, isfinite
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +45,9 @@ class PhysicsConfig:
     substep: float = 1.0 / 120.0
 
     def __post_init__(self) -> None:
+        values = (self.gravity, self.chase_speed, self.max_delta, self.substep)
+        if not all(isfinite(value) for value in values):
+            raise ValueError("physics configuration values must be finite")
         if self.gravity < 0.0 or self.chase_speed < 0.0:
             raise ValueError("gravity and chase_speed must be non-negative")
         if self.max_delta <= 0.0 or self.substep <= 0.0:

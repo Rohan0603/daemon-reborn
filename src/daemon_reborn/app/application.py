@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QRect, QSettings, Qt, QTimer
-from PySide6.QtGui import QGuiApplication, QScreen
+from PySide6.QtGui import QCursor, QGuiApplication, QScreen
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from daemon_reborn.ui.f04 import SettingsPanel, SettingsStore, SpeechBubble
@@ -173,8 +173,13 @@ class DesktopApplication:
         if selection is None:
             return
         _screen, area = selection
-        self.pet_window.set_physics_bounds(area.available)
-        self.pet_window.advance_physics(0.033)
+        if self.pet_window.is_dragging:
+            primary = QGuiApplication.primaryScreen()
+            virtual = primary.virtualGeometry() if primary is not None else area.available
+            self.pet_window.set_physics_bounds(virtual)
+        else:
+            self.pet_window.set_physics_bounds(area.available)
+        self.pet_window.advance_physics(0.033, QCursor.pos())
 
     def _remember_pet_position(self) -> None:
         point = self.pet_window.frameGeometry().center()

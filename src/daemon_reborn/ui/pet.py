@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QCloseEvent, QColor, QMouseEvent, QPainter, QPaintEvent, QRegion
+from PySide6.QtGui import QCloseEvent, QColor, QCursor, QMouseEvent, QPainter, QPaintEvent, QRegion
 from PySide6.QtWidgets import QWidget
 
 from daemon_reborn.ui.physics import PetPhysics, PhysicsBounds, Vec2
@@ -71,12 +71,13 @@ class PetWindow(QWidget):
             )
             self._physics.set_position(Vec2(float(self.x()), float(self.y())))
 
-    def advance_physics(self, delta_seconds: float) -> None:
+    def advance_physics(self, delta_seconds: float, target: QPoint | None = None) -> None:
         """Advance physics and apply the logical position to the Qt window."""
         if self._physics is None or self.is_dragging:
             return
         self._physics.set_position(Vec2(float(self.x()), float(self.y())))
-        self._physics.step(delta_seconds)
+        chase_target = target or QCursor.pos()
+        self._physics.step(delta_seconds, Vec2(float(chase_target.x()), float(chase_target.y())))
         self.move(round(self._physics.position.x), round(self._physics.position.y))
 
     def shutdown(self) -> None:

@@ -64,9 +64,9 @@ def test_delayed_tick_is_bounded() -> None:
 
 
 def test_invalid_config_is_rejected() -> None:
-    try:
-        PhysicsConfig(substep=0.0)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("non-positive substep must be rejected")
+    for kwargs in ({"substep": 0.0}, {"gravity": float("nan")}, {"max_delta": float("inf")}):
+        try:
+            PhysicsConfig(**kwargs)
+        except ValueError:
+            continue
+        raise AssertionError("invalid physics configuration must be rejected")
