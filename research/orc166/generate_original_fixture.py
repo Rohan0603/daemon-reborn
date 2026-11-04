@@ -4,6 +4,7 @@ Requires Python 3.12+ stdlib only. Output .aseprite is an import candidate,
 NOT a Pixelorama .pxo and NOT proof that Pixelorama's CLI works.
 Spec: https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -83,9 +84,14 @@ def render() -> bytes:
         cel = struct.pack("<HhhBHh5xHH", 0, 0, 0, 255, 2, 0, WIDTH, HEIGHT)
         chunks.append(chunk(0x2005, cel + zlib.compress(data, level=9)))
         body = b"".join(chunks)
-        output_frames.append(struct.pack("<IHHH2xI", 16 + len(body), 0xF1FA, len(chunks), duration, len(chunks)) + body)
+        output_frames.append(
+            struct.pack("<IHHH2xI", 16 + len(body), 0xF1FA, len(chunks), duration, len(chunks))
+            + body
+        )
     frames = b"".join(output_frames)
-    header = struct.pack("<IHHHHHIHII", 128 + len(frames), 0xA5E0, len(DURATIONS_MS), WIDTH, HEIGHT, 32, 1, 100, 0, 0)
+    header = struct.pack(
+        "<IHHHHHIHII", 128 + len(frames), 0xA5E0, len(DURATIONS_MS), WIDTH, HEIGHT, 32, 1, 100, 0, 0
+    )
     header += struct.pack("<B3xHBBhhHH", 0, 0, 1, 1, 0, 0, 16, 16)
     header = header.ljust(128, b"\0")
     assert len(header) == 128
@@ -105,7 +111,7 @@ def inspect(data: bytes) -> None:
         pos = offset + 16
         for _ in range(n):
             chunk_len, kind = struct.unpack_from("<IH", data, pos)
-            payload = data[pos + 6:pos + chunk_len]
+            payload = data[pos + 6 : pos + chunk_len]
             if kind == 0x2005:
                 w, h = struct.unpack_from("<HH", payload, 16)
                 assert (w, h) == (64, 64)
@@ -120,7 +126,7 @@ def inspect(data: bytes) -> None:
                 for _ in range(count):
                     begin, end = struct.unpack_from("<HH", payload, pos_tag)
                     text_len = struct.unpack_from("<H", payload, pos_tag + 17)[0]
-                    name = payload[pos_tag + 19:pos_tag + 19 + text_len].decode()
+                    name = payload[pos_tag + 19 : pos_tag + 19 + text_len].decode()
                     tags_seen.append((name, begin, end))
                     pos_tag += 19 + text_len
             pos += chunk_len
@@ -143,7 +149,9 @@ def main() -> None:
         "format": "Aseprite RGBA 32-bit import candidate (NOT a native Pixelorama .pxo)",
         "size": [64, 64],
         "durations_ms": list(DURATIONS_MS),
-        "tags": [{"name": name, "from_frame_0_based": a, "to_frame_0_based": b} for name, a, b in TAGS],
+        "tags": [
+            {"name": name, "from_frame_0_based": a, "to_frame_0_based": b} for name, a, b in TAGS
+        ],
         "alpha": "Includes fully transparent and fully opaque pixels",
         "image_file_sha256": hashlib.sha256(binary).hexdigest(),
         "pixel_sha256": [hashlib.sha256(pixels(i)).hexdigest() for i in range(4)],
