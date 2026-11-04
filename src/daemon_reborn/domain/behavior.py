@@ -14,7 +14,6 @@ from datetime import datetime
 
 from daemon_reborn.domain.contracts import BehaviorSnapshot, InterruptPolicy, Priority
 
-
 _ALLOWED: dict[str, frozenset[str]] = {
     "physical": frozenset({"idle", "chase", "fall", "drag"}),
     "activity": frozenset({"idle", "thinking", "speaking"}),
