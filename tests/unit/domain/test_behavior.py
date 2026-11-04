@@ -1,10 +1,12 @@
 """ORC-200: deterministic, Qt-independent four-axis behavior contracts (TDD)."""
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from itertools import product
 
 import pytest
 
+from daemon_reborn.domain import behavior
 from daemon_reborn.domain.behavior import BehaviorCommand, BehaviorPolicy
 from daemon_reborn.domain.contracts import InterruptPolicy, Priority
 
@@ -153,9 +155,6 @@ def test_clock_rollback_fails_before_mutating_state() -> None:
 
 
 def test_model_and_qt_modules_are_not_domain_dependencies() -> None:
-    import inspect
-    import daemon_reborn.domain.behavior as behavior
-
     text = inspect.getsource(behavior)
     assert "PySide6" not in text
     assert "subprocess" not in text
