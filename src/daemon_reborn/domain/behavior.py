@@ -6,11 +6,11 @@ converts sanitized domain events into BehaviorCommand values.
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-import math
 
 from daemon_reborn.domain.contracts import BehaviorSnapshot, InterruptPolicy, Priority
 
@@ -105,7 +105,7 @@ class BehaviorPolicy:
     def _now(self) -> float:
         value = self._monotonic()
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError("monotonic clock must return a finite number")
+            raise TypeError("monotonic clock must return a numeric value")
         current = float(value)
         if not math.isfinite(current):
             raise ValueError("monotonic clock must return a finite number")
@@ -174,9 +174,7 @@ class BehaviorPolicy:
             if len(self._queued) >= self._max_pending:
                 raise OverflowError("reaction queue full")
             self._queued.append(incoming)
-        elif command.interrupt == InterruptPolicy.NEVER:
-            pass
-        elif command.priority < self._active.priority:
+        elif command.interrupt == InterruptPolicy.NEVER or command.priority < self._active.priority:
             pass
         else:
             if command.priority > self._active.priority:
