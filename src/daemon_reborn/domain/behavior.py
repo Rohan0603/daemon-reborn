@@ -166,7 +166,10 @@ class BehaviorPolicy:
             self._clear_reactions()
             return self._snapshot_at()
 
-        seconds = float(command.ttl_seconds)  # Validated by BehaviorCommand.
+        ttl_seconds = command.ttl_seconds
+        if ttl_seconds is None:
+            raise TypeError("reaction TTL missing")
+        seconds = float(ttl_seconds)
         incoming = _PendingReaction(command.value, command.priority, seconds)
         if self._active is None:
             self._active = _ActiveReaction(command.value, command.priority, now + seconds)
