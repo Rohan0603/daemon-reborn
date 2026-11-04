@@ -181,6 +181,14 @@ class DesktopApplication:
         else:
             cursor_screen = QGuiApplication.screenAt(cursor)
             pet_screen = QGuiApplication.screenAt(self.pet_window.frameGeometry().center())
+            if cursor_screen is not None and pet_screen is cursor_screen:
+                # Chase may have carried the pet onto a new display; make that
+                # process-local screen the active placement so safe bounds are
+                # restored on this tick rather than waiting for a drag.
+                if self._placement_screen is not cursor_screen:
+                    self._placement_screen = cursor_screen
+                placement_screen = cursor_screen
+                area = self._screen_area(cursor_screen)
             if cursor_screen is not None and (
                 cursor_screen is not placement_screen or pet_screen is not cursor_screen
             ):
