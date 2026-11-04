@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -62,7 +63,12 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
             raise ManifestError(f"frame {frame_id} must be an object")
         duration = raw_frame.get("duration")
         cels = raw_frame.get("cels")
-        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration <= 0:
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not math.isfinite(float(duration))
+            or duration <= 0
+        ):
             raise ManifestError(f"frame {frame_id} has invalid duration")
         if not isinstance(cels, list) or not cels:
             raise ManifestError(f"frame {frame_id} has no cels")
@@ -72,7 +78,10 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
             match = _IMAGE_SIZE.fullmatch(str(cel.get("image_size", "")))
             if not match or (int(match[1]), int(match[2])) != (width, height):
                 raise ManifestError(f"frame {frame_id} has invalid image size")
-        frames.append(RuntimeFrame(frame_id, round(float(duration) * 1000)))
+        duration_ms = round(float(duration) * 1000)
+        if duration_ms < 1:
+            raise ManifestError(f"frame {frame_id} has invalid duration")
+        frames.append(RuntimeFrame(frame_id, duration_ms))
 
     ranges: list[tuple[str, int, int]] = []
     names: set[str] = set()

@@ -67,3 +67,19 @@ def test_rejects_export_without_json_sidecar(tmp_path: Path) -> None:
 
     with pytest.raises(ManifestError, match="JSON export is not enabled"):
         load_runtime_manifest(path)
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), -float("inf"), 0.0001])
+def test_rejects_non_finite_or_sub_millisecond_duration(tmp_path: Path, duration: float) -> None:
+    snapshot = export_snapshot()
+    frames = snapshot["frames"]
+    assert isinstance(frames, list)
+    snapshot["frames"] = [
+        {"duration": duration, "cels": [{"image_size": "Vector2i(64, 64)"}]},
+        frames[1],
+    ]
+    path = tmp_path / "invalid-duration.json"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ManifestError, match="invalid duration"):
+        load_runtime_manifest(path)
