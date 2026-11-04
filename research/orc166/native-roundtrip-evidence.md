@@ -30,4 +30,23 @@ Pixelorama.exe --headless --display-driver headless --audio-driver Dummy --rende
 - Unwritable output: export targeted protected `C:\Windows\System32\orc166-atlas.png`; process exited `0` but produced no PNG or JSON. Wrapper must reject success when required outputs are absent.
 - Duplicate/missing tag and missing JSON cases remain NOT RUN.
 
+## Remaining negative matrix (2026-11-05)
+
+Using the same v1.2.4 executable and native `.pxo`,
+`run_negative_matrix.py` generated controlled copies and ran each export with a
+15-second timeout. Raw results are in `native-evidence/negative-matrix-20261105/results.json`.
+
+- Duplicate tags: process exit `0`, PNG and JSON were emitted; the runtime
+  adapter rejected the JSON with `duplicate tag: idle`.
+- Missing tag coverage: process exit `0`, PNG and JSON were emitted; the
+  adapter rejected the JSON with `frames not covered by tags: [3, 4]`.
+- Missing JSON: process exit `0`, PNG was emitted and no JSON sidecar was
+  emitted; the staged-output gate rejected the result (`FileNotFoundError`).
+
+These cases demonstrate that Pixelorama itself can return success for invalid
+or incomplete promotion inputs; the caller must require both output files and
+run the fail-closed adapter before promotion. The native process results and
+adapter verdicts are now reproducible, but independent review/owner acceptance
+of this policy is still required before closing ORC-166.
+
 Conclusion: native import/save and deterministic positive export are demonstrated, but ORC-166 remains In Review until the negative-path failure policy and runtime-manifest adapter are independently accepted.
