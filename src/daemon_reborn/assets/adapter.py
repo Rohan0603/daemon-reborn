@@ -21,10 +21,17 @@ class RuntimeFrame:
 
 
 @dataclass(frozen=True)
+class RuntimeTag:
+    name: str
+    from_frame: int
+    to_frame: int
+
+
+@dataclass(frozen=True)
 class RuntimeManifest:
     size: tuple[int, int]
     frames: tuple[RuntimeFrame, ...]
-    tags: tuple[str, ...]
+    tags: tuple[RuntimeTag, ...]
 
 
 _IMAGE_SIZE = re.compile(r"^Vector2i\((\d+), (\d+)\)$")
@@ -111,7 +118,11 @@ def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:
     missing = sorted(set(range(1, len(frames) + 1)) - covered)
     if missing:
         raise ManifestError(f"frames not covered by tags: {missing}")
-    return RuntimeManifest((width, height), tuple(frames), tuple(name for name, _, _ in ranges))
+    return RuntimeManifest(
+        (width, height),
+        tuple(frames),
+        tuple(RuntimeTag(name, begin, end) for name, begin, end in ranges),
+    )
 
 
 def _positive_int(snapshot: Mapping[str, object], key: str) -> int:
