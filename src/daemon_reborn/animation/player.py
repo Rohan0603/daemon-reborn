@@ -111,7 +111,7 @@ class SpritePlayer:
         self._stopped = False
         self._paused_at = None
         self._paused_elapsed = 0.0
-        self._started_at = self._clock() if now is None else now
+        self._started_at = self._clock() if now is None else self._validate_timestamp(now)
         return self._generation
 
     def interrupt(self, generation: int, *, fallback: bool = True) -> int:
@@ -124,18 +124,19 @@ class SpritePlayer:
 
     def pause(self, *, now: float | None = None) -> None:
         if self._paused_at is None:
-            paused_at = self._clock() if now is None else now
+            paused_at = self._clock() if now is None else self._validate_timestamp(now)
             self._paused_elapsed = max(0.0, (paused_at - self._started_at) * self._speed)
             self._paused_at = paused_at
 
     def resume(self, *, now: float | None = None) -> None:
         if self._paused_at is not None:
-            resumed = self._clock() if now is None else now
+            resumed = self._clock() if now is None else self._validate_timestamp(now)
             self._started_at = resumed - self._paused_elapsed / self._speed
             self._paused_at = None
 
     def reset(self, *, now: float | None = None) -> None:
-        self._started_at = self._clock() if now is None else now
+        self._generation += 1
+        self._started_at = self._clock() if now is None else self._validate_timestamp(now)
         self._paused_at = None
         self._paused_elapsed = 0.0
         self._stopped = False
@@ -146,8 +147,7 @@ class SpritePlayer:
         return self._frame_at(self._elapsed(timestamp))
 
     def _elapsed(self, now: float) -> float:
-        if not isfinite(now):
-            raise ValueError("timestamp must be finite")
+        now = self._validate_timestamp(now)
         if self._paused_at is not None:
             return self._paused_elapsed
         return max(0.0, (now - self._started_at) * self._speed)
@@ -168,6 +168,12 @@ class SpritePlayer:
             if phase < cursor:
                 return frame
         return frames[-1]
+
+    @staticmethod
+    def _validate_timestamp(timestamp: float) -> float:
+        if not isfinite(timestamp):
+            raise ValueError("timestamp must be finite")
+        return timestamp
 
     @staticmethod
     def _validate_speed(speed: float) -> float:
