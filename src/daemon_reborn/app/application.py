@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QRect, QSettings, Qt
-from PySide6.QtGui import QGuiApplication, QScreen
+from PySide6.QtCore import QRect, QSettings, Qt, QTimer
+from PySide6.QtGui import QCursor, QGuiApplication, QScreen
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from daemon_reborn.ui.f04 import SettingsPanel, SettingsStore, SpeechBubble
@@ -32,6 +32,9 @@ class DesktopApplication:
         self.qt_application.setQuitOnLastWindowClosed(False)
         self.pet_window = PetWindow()
         self.bubble = SpeechBubble()
+        self._physics_timer = QTimer(self.qt_application)
+        self._physics_timer.setInterval(33)
+        self._physics_timer.timeout.connect(self._advance_pet_physics)
         self._placement_settings = placement_settings or QSettings("Daemon Reborn", "Daemon Reborn")
         self._ui_settings_store = SettingsStore(QSettings("Daemon Reborn", "Daemon Reborn"))
         self._watched_screens: list[QScreen] = []
@@ -69,6 +72,7 @@ class DesktopApplication:
             logger.error("System tray is unavailable; refusing to start an inaccessible shell")
             return 1
         self.tray.show()
+        self._physics_timer.start()
         self.pet_window.show()
         return self.qt_application.exec()
 
@@ -99,6 +103,7 @@ class DesktopApplication:
                 pass
         self._watched_screens.clear()
         self.tray.hide()
+        self._physics_timer.stop()
         self.bubble.close()
         self.pet_window.shutdown()
         if self._settings_dialog is not None:
@@ -160,7 +165,42 @@ class DesktopApplication:
             return
         _screen, area = selection
         geometry = place_on_screen(area, self._placement_anchor, self.pet_window.size())
+        self.pet_window.set_physics_bounds(area.available)
         self.pet_window.move(geometry.topLeft())
+
+    def _advance_pet_physics(self) -> None:
+        selection = self._screen_and_area()
+        if selection is None:
+            return
+        placement_screen, area = selection
+        cursor = QCursor.pos()
+        if self.pet_window.is_dragging:
+            primary = QGuiApplication.primaryScreen()
+            virtual = primary.virtualGeometry() if primary is not None else area.available
+            self.pet_window.set_physics_bounds(virtual)
+        else:
+            cursor_screen = QGuiApplication.screenAt(cursor)
+            pet_screen = QGuiApplication.screenAt(self.pet_window.frameGeometry().center())
+            if cursor_screen is not None and pet_screen is cursor_screen:
+                # Chase may have carried the pet onto a new display; make that
+                # process-local screen the active placement so safe bounds are
+                # restored on this tick rather than waiting for a drag.
+                if self._placement_screen is not cursor_screen:
+                    self._placement_screen = cursor_screen
+                placement_screen = cursor_screen
+                area = self._screen_area(cursor_screen)
+            if cursor_screen is not None and (
+                cursor_screen is not placement_screen or pet_screen is not cursor_screen
+            ):
+                # Use the virtual desktop only while crossing displays. Once the
+                # pet reaches the target display, the next tick restores its
+                # taskbar-safe available geometry.
+                primary = QGuiApplication.primaryScreen()
+                virtual = primary.virtualGeometry() if primary is not None else area.available
+                self.pet_window.set_physics_bounds(virtual)
+            else:
+                self.pet_window.set_physics_bounds(area.available)
+        self.pet_window.advance_physics(0.033, cursor)
 
     def _remember_pet_position(self) -> None:
         point = self.pet_window.frameGeometry().center()
