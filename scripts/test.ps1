@@ -1,19 +1,28 @@
+param(
+    [string]$ArtifactRoot = (Join-Path $PSScriptRoot "..\\ci-artifacts")
+)
+
 $ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $ArtifactRoot | Out-Null
 
-uv sync --locked
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+function Invoke-CheckedCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
 
-uv run pytest -q
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $logPath = Join-Path $ArtifactRoot "$Name.log"
+    Write-Output "=== $Name ==="
+    & uv @Arguments 2>&1 | Tee-Object -FilePath $logPath
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "$Name failed with exit code $exitCode"
+    }
+}
 
-uv run ruff check .
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-uv run ruff format --check .
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-uv run mypy
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-uv run python -m daemon_reborn --help
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Invoke-CheckedCommand -Name "uv-sync" -Arguments @("sync", "--locked")
+Invoke-CheckedCommand -Name "pytest" -Arguments @("run", "pytest", "-q")
+Invoke-CheckedCommand -Name "ruff-check" -Arguments @("run", "ruff", "check", ".")
+Invoke-CheckedCommand -Name "ruff-format" -Arguments @("run", "ruff", "format", "--check", ".")
+Invoke-CheckedCommand -Name "mypy" -Arguments @("run", "mypy")
+Invoke-CheckedCommand -Name "cli-help" -Arguments @("run", "python", "-m", "daemon_reborn", "--help")
