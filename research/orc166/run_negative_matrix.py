@@ -119,7 +119,9 @@ def run_case(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pixelorama-exe", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, help="Must be new or empty; never overwrite historical evidence")
+    parser.add_argument(
+        "--output-dir", type=Path, help="Must be new or empty; never overwrite historical evidence"
+    )
     args = parser.parse_args()
 
     executable = args.pixelorama_exe.resolve()
@@ -141,7 +143,9 @@ def main() -> int:
     else:
         run_root = args.output_dir.resolve()
         if run_root.exists() and any(run_root.iterdir()):
-            parser.error(f"refusing nonempty output directory with possible stale JSON/PNG: {run_root}")
+            parser.error(
+                f"refusing nonempty output directory with possible stale JSON/PNG: {run_root}"
+            )
         run_root.mkdir(parents=True, exist_ok=True)
 
     duplicate = variant(
@@ -151,7 +155,9 @@ def main() -> int:
     )
     missing = variant(
         "missing-tag-coverage",
-        lambda doc: doc.update({"tags": [{"color": "ffffffff", "from": 1, "name": "idle", "to": 2}]}),
+        lambda doc: doc.update(
+            {"tags": [{"color": "ffffffff", "from": 1, "name": "idle", "to": 2}]}
+        ),
         run_root,
     )
     results = {
@@ -160,7 +166,11 @@ def main() -> int:
         "pixelorama_executable_sha256_verified": sha256_file(executable),
         "output_directory": str(run_root),
         "duplicate_tags": run_case(
-            "duplicate-tags-run", duplicate, json_export=True, executable=executable, run_root=run_root
+            "duplicate-tags-run",
+            duplicate,
+            json_export=True,
+            executable=executable,
+            run_root=run_root,
         ),
         "missing_tag_coverage": run_case(
             "missing-tag-run", missing, json_export=True, executable=executable, run_root=run_root
