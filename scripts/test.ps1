@@ -18,6 +18,7 @@ function Invoke-CheckedCommand {
     Write-Output "=== $Name ==="
     & uv @Arguments 2>&1 | Tee-Object -FilePath $logPath
     $exitCode = $LASTEXITCODE
+    Add-Content -LiteralPath $logPath -Value "exit_code=$exitCode"
     if ($exitCode -ne 0) {
         throw "$Name failed with exit code $exitCode"
     }
