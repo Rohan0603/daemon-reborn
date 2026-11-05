@@ -174,6 +174,24 @@ def test_clock_rollback_fails_before_mutating_state() -> None:
     assert policy.snapshot().activity == "thinking"
 
 
+def test_wall_clock_failure_fails_before_mutating_state() -> None:
+    clock = FakeClock()
+    fail_wall = False
+
+    def wall() -> datetime:
+        if fail_wall:
+            raise RuntimeError("wall clock unavailable")
+        return clock.wall()
+
+    policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=wall)
+    policy.apply(BehaviorCommand("activity", "thinking"))
+    fail_wall = True
+    with pytest.raises(RuntimeError, match="wall clock"):
+        policy.apply(BehaviorCommand("activity", "speaking"))
+    fail_wall = False
+    assert policy.snapshot().activity == "thinking"
+
+
 def test_domain_package_exports_behavior_public_contracts() -> None:
     assert domain.BehaviorCommand is BehaviorCommand
     assert domain.BehaviorPolicy is BehaviorPolicy

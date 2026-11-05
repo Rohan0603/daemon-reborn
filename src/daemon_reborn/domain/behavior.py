@@ -126,10 +126,13 @@ class BehaviorPolicy:
                 next_item.value, next_item.priority, boundary + next_item.seconds
             )
 
-    def _snapshot_at(self) -> BehaviorSnapshot:
+    def _wall_now(self) -> datetime:
         occurred_at = self._wall_clock()
         if not isinstance(occurred_at, datetime):
             raise TypeError("wall clock must return datetime")
+        return occurred_at
+
+    def _snapshot_at(self, occurred_at: datetime) -> BehaviorSnapshot:
         return BehaviorSnapshot(
             physical_state=self._axes["physical"],
             activity=self._axes["activity"],
@@ -139,13 +142,15 @@ class BehaviorPolicy:
         )
 
     def snapshot(self) -> BehaviorSnapshot:
+        occurred_at = self._wall_now()
         now = self._now()
         self._advance(now)
-        return self._snapshot_at()
+        return self._snapshot_at(occurred_at)
 
     def apply(self, command: BehaviorCommand) -> BehaviorSnapshot:
         if not isinstance(command, BehaviorCommand):
             raise TypeError("command must be BehaviorCommand")
+        occurred_at = self._wall_now()
         now = self._now()
         self._advance(now)
 
@@ -155,11 +160,11 @@ class BehaviorPolicy:
             # dimension; a later normal command must be able to recover from a
             # previously high-priority pose/activity/emotion.
             self._axes[command.dimension] = command.value
-            return self._snapshot_at()
+            return self._snapshot_at(occurred_at)
 
         if command.value == "none":
             self._clear_reactions()
-            return self._snapshot_at()
+            return self._snapshot_at(occurred_at)
 
         ttl_seconds = command.ttl_seconds
         if ttl_seconds is None:
@@ -184,7 +189,7 @@ class BehaviorPolicy:
                         _PendingReaction(self._active.value, self._active.priority, remaining)
                     )
             self._active = _ActiveReaction(command.value, command.priority, now + seconds)
-        return self._snapshot_at()
+        return self._snapshot_at(occurred_at)
 
     def _clear_reactions(self) -> None:
         self._active = None
@@ -192,10 +197,11 @@ class BehaviorPolicy:
         self._queued.clear()
 
     def cancel_reactions(self) -> BehaviorSnapshot:
+        occurred_at = self._wall_now()
         now = self._now()
         self._advance(now)
         self._clear_reactions()
-        return self._snapshot_at()
+        return self._snapshot_at(occurred_at)
 
 
 __all__ = ["BehaviorCommand", "BehaviorPolicy"]
