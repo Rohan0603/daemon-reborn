@@ -1,9 +1,12 @@
 param(
+    [ValidateSet("full")]
+    [string]$Profile = "full",
     [string]$ArtifactRoot = (Join-Path $PSScriptRoot "..\\ci-artifacts")
 )
 
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $ArtifactRoot | Out-Null
+Set-Content -Path (Join-Path $ArtifactRoot "profile.log") -Value "profile=$Profile"
 
 function Invoke-CheckedCommand {
     param(

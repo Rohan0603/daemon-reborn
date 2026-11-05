@@ -33,6 +33,7 @@ jobs:
     env:
       UV_LINK_MODE: copy
       UV_NO_PROGRESS: "1"
+      CI_PROFILE: ${{ matrix.profile }}
 
     steps:
       - name: Check out source
@@ -53,7 +54,7 @@ jobs:
 
       - name: Install and run project checks
         shell: pwsh
-        run: .\scripts\test.ps1 -ArtifactRoot ci-artifacts
+        run: .\scripts\test.ps1 -Profile $env:CI_PROFILE -ArtifactRoot ci-artifacts
 
       - name: Smoke-check asset manifest JSON
         shell: pwsh
@@ -74,7 +75,7 @@ jobs:
         with:
           name: windows-ci-evidence-${{ matrix.python-version }}-${{ matrix.profile }}
           path: ci-artifacts
-          if-no-files-found: warn
+          if-no-files-found: error
 
   failure-probe:
     name: Deliberate failure probe
