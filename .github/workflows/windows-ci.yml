@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12"]
-        profile: ["full"]
+        profile: ["full", "unit"]
     env:
       UV_LINK_MODE: copy
       UV_NO_PROGRESS: "1"
@@ -68,6 +68,26 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REF: ${{ github.head_ref }}
         run: .\scripts\check_pr_evidence.ps1
+
+      - name: Validate CI evidence manifest
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $expected = @(
+            "profile.log",
+            "uv-sync.log",
+            "pytest.log",
+            "ruff-check.log",
+            "ruff-format.log",
+            "mypy.log",
+            "cli-help.log"
+          )
+          $missing = @($expected | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path "ci-artifacts" $_) -PathType Leaf)
+          })
+          if ($missing.Count -gt 0) {
+            throw "Missing CI evidence files: $($missing -join ', ')"
+          }
 
       - name: Upload CI evidence
         if: ${{ always() }}

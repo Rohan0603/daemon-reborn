@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("full")]
+    [ValidateSet("full", "unit")]
     [string]$Profile = "full",
     [string]$ArtifactRoot = (Join-Path $PSScriptRoot "..\\ci-artifacts")
 )
@@ -24,7 +24,11 @@ function Invoke-CheckedCommand {
 }
 
 Invoke-CheckedCommand -Name "uv-sync" -Arguments @("sync", "--locked")
-Invoke-CheckedCommand -Name "pytest" -Arguments @("run", "pytest", "-q")
+if ($Profile -eq "unit") {
+    Invoke-CheckedCommand -Name "pytest" -Arguments @("run", "pytest", "-q", "tests/unit")
+} else {
+    Invoke-CheckedCommand -Name "pytest" -Arguments @("run", "pytest", "-q")
+}
 Invoke-CheckedCommand -Name "ruff-check" -Arguments @("run", "ruff", "check", ".")
 Invoke-CheckedCommand -Name "ruff-format" -Arguments @("run", "ruff", "format", "--check", ".")
 Invoke-CheckedCommand -Name "mypy" -Arguments @("run", "mypy")
