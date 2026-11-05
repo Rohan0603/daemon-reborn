@@ -94,9 +94,6 @@ class BehaviorPolicy:
         self._max_pending = max_pending
         self._last_time: float | None = None
         self._axes: dict[str, str] = dict(_REST)
-        self._axis_priority: dict[str, Priority] = {
-            dimension: Priority.NORMAL for dimension in _REST
-        }
         self._active: _ActiveReaction | None = None
         self._suspended: list[_PendingReaction] = []
         self._queued: deque[_PendingReaction] = deque()
@@ -153,13 +150,11 @@ class BehaviorPolicy:
         self._advance(now)
 
         if command.dimension != "reaction":
-            if command.priority >= self._axis_priority[command.dimension]:
-                self._axes[command.dimension] = command.value
-                self._axis_priority[command.dimension] = (
-                    Priority.NORMAL
-                    if command.value == _REST[command.dimension]
-                    else command.priority
-                )
+            # Axis commands are already serialized by the event bus. Priority
+            # arbitrates queue admission, not a persistent lock on a state
+            # dimension; a later normal command must be able to recover from a
+            # previously high-priority pose/activity/emotion.
+            self._axes[command.dimension] = command.value
             return self._snapshot_at()
 
         if command.value == "none":

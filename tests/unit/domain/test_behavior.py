@@ -112,13 +112,12 @@ def test_lower_priority_or_never_interrupt_does_not_preempt() -> None:
     assert policy.snapshot().reaction == "none"
 
 
-def test_physical_priority_resets_when_returning_to_idle() -> None:
+def test_physical_transition_recovers_after_high_priority_command() -> None:
     clock = FakeClock()
     policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=clock.wall)
     policy.apply(BehaviorCommand("physical", "drag", priority=Priority.HIGH))
     policy.apply(BehaviorCommand("physical", "fall", priority=Priority.NORMAL))
-    assert policy.snapshot().physical_state == "drag"
-    policy.apply(BehaviorCommand("physical", "idle", priority=Priority.HIGH))
+    assert policy.snapshot().physical_state == "fall"
     policy.apply(BehaviorCommand("physical", "chase", priority=Priority.NORMAL))
     assert policy.snapshot().physical_state == "chase"
 
