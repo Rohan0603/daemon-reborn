@@ -192,6 +192,23 @@ def test_wall_clock_failure_fails_before_mutating_state() -> None:
     assert policy.snapshot().activity == "thinking"
 
 
+def test_naive_wall_clock_fails_before_mutating_state() -> None:
+    clock = FakeClock()
+    use_naive = False
+
+    def wall() -> datetime:
+        value = clock.wall()
+        return value.replace(tzinfo=None) if use_naive else value
+
+    policy = BehaviorPolicy(monotonic=clock.monotonic, wall_clock=wall)
+    policy.apply(BehaviorCommand("activity", "thinking"))
+    use_naive = True
+    with pytest.raises(ValueError, match="timezone-aware"):
+        policy.apply(BehaviorCommand("activity", "speaking"))
+    use_naive = False
+    assert policy.snapshot().activity == "thinking"
+
+
 def test_domain_package_exports_behavior_public_contracts() -> None:
     assert domain.BehaviorCommand is BehaviorCommand
     assert domain.BehaviorPolicy is BehaviorPolicy

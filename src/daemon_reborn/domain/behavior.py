@@ -130,6 +130,8 @@ class BehaviorPolicy:
         occurred_at = self._wall_clock()
         if not isinstance(occurred_at, datetime):
             raise TypeError("wall clock must return datetime")
+        if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
+            raise ValueError("wall clock must return timezone-aware datetime")
         return occurred_at
 
     def _snapshot_at(self, occurred_at: datetime) -> BehaviorSnapshot:
