@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12.10"]
         profile: ["full", "unit"]
     env:
       UV_LINK_MODE: copy
