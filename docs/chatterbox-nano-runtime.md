@@ -38,6 +38,8 @@ dependencies, missing checkpoints, load failures, and synthesis failures raise
 `NanoUnavailable`, allowing the caller to keep the rest of the application
 usable and report speech as unavailable.
 
+Linear evidence: ORC-193 implementation and ORC-164 qualification.
+
 ## Qualification boundary
 
 The Windows CPU/offline qualification recorded successful local load,
