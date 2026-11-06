@@ -107,9 +107,7 @@ def export_pixelorama(
         provenance_path = stage / "provenance.json"
         _write_json(provenance_path, provenance)
         checksummed_files = {**file_hashes, "provenance.json": _sha256(provenance_path)}
-        sums = "".join(
-            f"{checksummed_files[name]}  {name}\n" for name in sorted(checksummed_files)
-        )
+        sums = "".join(f"{checksummed_files[name]}  {name}\n" for name in sorted(checksummed_files))
         (stage / "SHA256SUMS.txt").write_text(sums, encoding="utf-8", newline="\n")
         _publish(stage, output_dir)
         return output_dir
