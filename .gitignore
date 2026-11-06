@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+ci-artifacts/
 build/
 dist/
 *.egg-info/
