@@ -1,0 +1,41 @@
+{
+  "pixelorama_archive_sha256": "8CE63C264338B88FD36527F8EDB3B7F6BBA614D92451EFC406EF7CE45B41DA85",
+  "fixture_sha256": "6F675C9F6DEFCB01CD8EB3B9E07CC39C2D9F46C5B9E12B592CD4145675299458",
+  "duplicate_tags": {
+    "returncode": 0,
+    "timed_out": false,
+    "stdout_tail": "Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org\n\nPixelorama v1.2.4-stable - Windows 11 (build 26200) - Single-window, 0 monitors - is not sandboxed - AMD Ryzen 5 4600H with Radeon Graphics (12 threads) - 15.37 GiB memory - Dummy\nTime Pixelorama took to open: 3392ms\nERROR: 5 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.\n",
+    "stderr_tail": "ERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Signal 'keyframe_set' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nERROR: Signal 'keyframe_unset' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nWARNING: 92 ObjectDB instances were leaked at exit (run with `--verbose` for details).\n   at: cleanup (core/object/object.cpp:2536)\nERROR: 16 resources still in use at exit (run with --verbose for details).\n   at: clear (core/io/resource.cpp:822)\n",
+    "png_exists": true,
+    "json_files": [
+      "duplicate-tags.json"
+    ],
+    "json_exists": true,
+    "success_manifest": true,
+    "adapter": "rejected: ManifestError: duplicate tag: idle"
+  },
+  "missing_tag_coverage": {
+    "returncode": 0,
+    "timed_out": false,
+    "stdout_tail": "Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org\n\nPixelorama v1.2.4-stable - Windows 11 (build 26200) - Single-window, 0 monitors - is not sandboxed - AMD Ryzen 5 4600H with Radeon Graphics (12 threads) - 15.37 GiB memory - Dummy\nTime Pixelorama took to open: 3054ms\nERROR: 5 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.\n",
+    "stderr_tail": "ERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Signal 'keyframe_set' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nERROR: Signal 'keyframe_unset' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nWARNING: 91 ObjectDB instances were leaked at exit (run with `--verbose` for details).\n   at: cleanup (core/object/object.cpp:2536)\nERROR: 16 resources still in use at exit (run with --verbose for details).\n   at: clear (core/io/resource.cpp:822)\n",
+    "png_exists": true,
+    "json_files": [
+      "missing-tag-coverage.json"
+    ],
+    "json_exists": true,
+    "success_manifest": true,
+    "adapter": "rejected: ManifestError: frames not covered by tags: [3, 4]"
+  },
+  "missing_json": {
+    "returncode": 0,
+    "timed_out": false,
+    "stdout_tail": "Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org\n\nPixelorama v1.2.4-stable - Windows 11 (build 26200) - Single-window, 0 monitors - is not sandboxed - AMD Ryzen 5 4600H with Radeon Graphics (12 threads) - 15.37 GiB memory - Dummy\nTime Pixelorama took to open: 2975ms\nERROR: 5 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.\n",
+    "stderr_tail": "ERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Condition \"!actions.custom_samplers.has(function->arguments[j].tex_builtin)\" is true. Continuing.\n   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)\nERROR: Signal 'keyframe_set' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nERROR: Signal 'keyframe_unset' is already connected to given callable 'Panel(AnimationTimeline.gd)::_on_layer_keyframe_changed' in that object.\n   at: connect (core/object/object.cpp:1562)\nWARNING: 92 ObjectDB instances were leaked at exit (run with `--verbose` for details).\n   at: cleanup (core/object/object.cpp:2536)\nERROR: 16 resources still in use at exit (run with --verbose for details).\n   at: clear (core/io/resource.cpp:822)\n",
+    "png_exists": true,
+    "json_files": [],
+    "json_exists": false,
+    "success_manifest": false,
+    "adapter": "rejected: FileNotFoundError: no JSON sidecar"
+  }
+}
