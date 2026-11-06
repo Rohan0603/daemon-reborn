@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      failure_probe:
+        description: "Run the deliberate failure probe; expected result is a red workflow"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -16,12 +22,18 @@ concurrency:
 
 jobs:
   windows:
-    name: Windows / Python 3.12
+    name: Windows / Python ${{ matrix.python-version }} / ${{ matrix.profile }}
     runs-on: windows-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12.10"]
+        profile: ["full", "unit"]
     env:
       UV_LINK_MODE: copy
       UV_NO_PROGRESS: "1"
+      CI_PROFILE: ${{ matrix.profile }}
 
     steps:
       - name: Check out source
@@ -32,7 +44,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
@@ -42,7 +54,7 @@ jobs:
 
       - name: Install and run project checks
         shell: pwsh
-        run: .\scripts\test.ps1
+        run: .\scripts\test.ps1 -Profile $env:CI_PROFILE -ArtifactRoot ci-artifacts
 
       - name: Smoke-check asset manifest JSON
         shell: pwsh
@@ -56,3 +68,55 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REF: ${{ github.head_ref }}
         run: .\scripts\check_pr_evidence.ps1
+
+      - name: Validate CI evidence manifest
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $expected = @(
+            "profile.log",
+            "uv-sync.log",
+            "pytest.log",
+            "ruff-check.log",
+            "ruff-format.log",
+            "mypy.log",
+            "cli-help.log"
+          )
+          $missing = @($expected | Where-Object {
+            $path = Join-Path "ci-artifacts" $_
+            -not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0
+          })
+          if ($missing.Count -gt 0) {
+            throw "Missing or empty CI evidence files: $($missing -join ', ')"
+          }
+          $checks = @("uv-sync", "pytest", "ruff-check", "ruff-format", "mypy", "cli-help")
+          $badExitCodes = @($checks | Where-Object {
+            $path = Join-Path "ci-artifacts" ("$_.log")
+            $lastLine = Get-Content -LiteralPath $path | Select-Object -Last 1
+            $lastLine -ne "exit_code=0"
+          })
+          if ($badExitCodes.Count -gt 0) {
+            throw "CI evidence logs do not prove exit_code=0: $($badExitCodes -join ', ')"
+          }
+
+      - name: Upload CI evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-ci-evidence-${{ matrix.python-version }}-${{ matrix.profile }}
+          path: ci-artifacts
+          if-no-files-found: error
+
+  failure-probe:
+    name: Deliberate failure probe
+    if: ${{ inputs.failure_probe == true }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run deliberate failure fixture
+        shell: pwsh
+        run: .\scripts\ci\intentional-failure.ps1
