@@ -62,6 +62,22 @@ def test_interruptions_increment_generation_and_stale_generation_is_ignored() ->
     assert player.interrupt(second) > second
 
 
+def test_play_if_current_rejects_stale_generation_without_mutation() -> None:
+    player = SpritePlayer([clip("idle"), clip("talk")], fallback="idle", clock=lambda: 0.0)
+    current = player.play("talk")
+
+    assert player.play_if_current("idle", current - 1) is None
+    assert player.clip.name == "talk"
+    assert player.generation == current
+
+
+def test_play_if_current_starts_clip_for_current_generation() -> None:
+    player = SpritePlayer([clip("idle"), clip("talk")], fallback="idle", clock=lambda: 0.0)
+
+    assert player.play_if_current("talk", player.generation) == 1
+    assert player.clip.name == "talk"
+
+
 @pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf")])
 def test_invalid_durations_and_speed_are_rejected(value: float) -> None:
     with pytest.raises(ValueError):
