@@ -1,0 +1,3 @@
+# Packaged catalog bytes are integrity-checked and must not be rewritten by Git.
+src/daemon_reborn/assets/packaged_idle/*.json binary
+src/daemon_reborn/assets/packaged_idle/SHA256SUMS.txt binary
