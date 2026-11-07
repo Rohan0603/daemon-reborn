@@ -190,6 +190,20 @@ def test_session_separates_submitted_from_qt_processed_clock() -> None:
     assert progress.queued_bytes == 8
 
 
+def test_processed_clock_recovery_rounds_down_to_complete_stereo_frames() -> None:
+    stereo_format = PcmFormat(sample_rate=48_000, channels=2)
+    session = PcmPlaybackSession(stereo_format, max_queue_bytes=16)
+    generation = session.begin(b"abcdefghijklmnop")
+    assert session.mark_submitted(8) == 8
+
+    session.update_processed_usecs(25)
+
+    progress = session.progress(generation)
+
+    assert progress.processed_bytes == 4
+    assert session.unplayed_data() == b"efghijklmnop"
+
+
 def test_large_playback_is_chunked_without_dropping_and_reaches_completion() -> None:
     device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))
     adapter = PcmAudioSinkAdapter(lambda: (device,))

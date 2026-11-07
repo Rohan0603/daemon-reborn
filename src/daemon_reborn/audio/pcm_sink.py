@@ -276,6 +276,7 @@ class PcmPlaybackSession:
 
     def update_processed_usecs(self, processed_usecs: int) -> None:
         processed = round(max(0, processed_usecs) * self.format.bytes_per_second / 1_000_000)
+        processed -= processed % self.format.bytes_per_frame
         new_processed = min(self._submitted_bytes, processed)
         del self._inflight[: max(0, new_processed - self._processed_bytes)]
         self._processed_bytes = new_processed
