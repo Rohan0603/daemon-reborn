@@ -66,11 +66,16 @@ def choose_supported_format(
     if not device.supported_formats:
         raise ValueError("audio device has no supported PCM formats")
     same_channels = [fmt for fmt in device.supported_formats if fmt.channels == requested.channels]
-    selected = min(same_channels or list(device.supported_formats), key=lambda fmt: abs(fmt.sample_rate - requested.sample_rate))
+    selected = min(
+        same_channels or list(device.supported_formats),
+        key=lambda fmt: abs(fmt.sample_rate - requested.sample_rate),
+    )
     return FormatSelection(selected, True)
 
 
-def generate_fixture_pcm(duration_ms: int = 250, sample_rate: int = FIXTURE_FORMAT.sample_rate) -> bytes:
+def generate_fixture_pcm(
+    duration_ms: int = 250, sample_rate: int = FIXTURE_FORMAT.sample_rate
+) -> bytes:
     """Generate a deterministic, non-voice 440 Hz mono PCM16 tone."""
 
     if duration_ms <= 0 or sample_rate <= 0:
@@ -98,7 +103,9 @@ def convert_pcm16(data: bytes, source: PcmFormat, target: PcmFormat) -> bytes:
     target_count = round(len(source_frames) * target.sample_rate / source.sample_rate)
     output = bytearray()
     for target_index in range(target_count):
-        source_index = min(len(source_frames) - 1, round(target_index * source.sample_rate / target.sample_rate))
+        source_index = min(
+            len(source_frames) - 1, round(target_index * source.sample_rate / target.sample_rate)
+        )
         frame = source_frames[source_index]
         if target.channels == source.channels:
             channels = frame
@@ -153,6 +160,7 @@ class SinkState(Enum):
     NO_DEVICE = "no-device"
     UNDERRUN = "underrun"
     STOPPED = "stopped"
+    WRITE_ERROR = "write-error"
 
 
 @dataclass(frozen=True)
@@ -278,7 +286,11 @@ class PcmPlaybackSession:
         if self._submitted_bytes == 0:
             self._submitted_bytes = self.mark_submitted(count)
         self._processed_bytes = min(self._submitted_bytes, self._processed_bytes + count)
-        if self._processed_bytes >= self._total_bytes and not self._queue and self.source_remaining == 0:
+        if (
+            self._processed_bytes >= self._total_bytes
+            and not self._queue
+            and self.source_remaining == 0
+        ):
             self.state = SinkState.IDLE
 
     def set_muted(self, muted: bool) -> None:
@@ -300,7 +312,9 @@ class PcmPlaybackSession:
             submitted_bytes=self._submitted_bytes,
             queued_bytes=len(self._queue),
             queued_latency_us=self.queued_latency_us,
-            processed_fraction=(self._processed_bytes / self._total_bytes if self._total_bytes else 1.0),
+            processed_fraction=(
+                self._processed_bytes / self._total_bytes if self._total_bytes else 1.0
+            ),
         )
 
 
@@ -384,7 +398,9 @@ class PcmAudioSinkAdapter(QObject):
                 continue
         self._active_data = None
         self.state = SinkState.STOPPED if attempted or devices else SinkState.NO_DEVICE
-        return PlaybackResult(False, generation, "sink-open-failed" if attempted or devices else "no-output-device")
+        return PlaybackResult(
+            False, generation, "sink-open-failed" if attempted or devices else "no-output-device"
+        )
 
     def _on_qt_state_changed(self, state: Any) -> None:
         if self._session is None:
@@ -419,7 +435,11 @@ class PcmAudioSinkAdapter(QObject):
 
     def pump(self) -> int:
         self._assert_ui_thread()
-        if self._session is None or self._sink_writer is None:
+        if (
+            self._session is None
+            or self._sink_writer is None
+            or self._session.state is not SinkState.PLAYING
+        ):
             return 0
         payload = self._session.peek(min(self._session.queued_bytes, 4_096))
         if not payload:
@@ -430,6 +450,10 @@ class PcmAudioSinkAdapter(QObject):
                 self.state = SinkState.UNDERRUN
             return 0
         written = max(0, min(len(payload), int(self._sink_writer(payload))))
+        if written == 0 or written % self._session.format.bytes_per_frame:
+            self._session.state = SinkState.WRITE_ERROR
+            self.state = SinkState.WRITE_ERROR
+            return 0
         self._session.mark_submitted(written)
         if self._processed_usecs_provider is None:
             self._session.update_processed_usecs(
@@ -439,8 +463,10 @@ class PcmAudioSinkAdapter(QObject):
             self._update_processed_clock()
         if written < len(payload):
             self.state = SinkState.PLAYING
-        elif self._session.state is SinkState.IDLE:
-            self.state = SinkState.IDLE
+        else:
+            session_state: SinkState = self._session.state
+            if session_state is SinkState.IDLE:
+                self.state = SinkState.IDLE
         return written
 
     def _update_processed_clock(self) -> None:

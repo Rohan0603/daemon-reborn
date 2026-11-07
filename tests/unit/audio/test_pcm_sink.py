@@ -223,6 +223,30 @@ def test_adapter_handles_partial_sink_writes_without_losing_unwritten_bytes() ->
     assert adapter.queued_bytes == 6
 
 
+@pytest.mark.parametrize("reported_count", [0, 1, 3])
+def test_adapter_stops_on_unaligned_partial_write_without_replaying_bytes(
+    reported_count: int,
+) -> None:
+    device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))
+    adapter = PcmAudioSinkAdapter(lambda: (device,))
+    calls: list[bytes] = []
+
+    def partial_writer(data: bytes) -> int:
+        calls.append(data)
+        return reported_count
+
+    adapter.set_sink_writer(partial_writer)
+    result = adapter.play(b"abcdefgh")
+
+    assert adapter.pump() == 0
+    assert result.started
+    assert adapter.state is SinkState.WRITE_ERROR
+    assert adapter.queued_bytes == 8
+    assert adapter.progress(result.generation).submitted_bytes == 0
+    assert adapter.pump() == 0
+    assert calls == [b"abcdefgh"]
+
+
 def test_adapter_mute_applies_before_playback_starts() -> None:
     device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))
     adapter = PcmAudioSinkAdapter(lambda: (device,))
@@ -307,7 +331,9 @@ def test_adapter_tries_supported_devices_until_one_opens(monkeypatch: pytest.Mon
     assert adapter._device is not None and adapter._device.device_id == "good"
 
 
-def test_adapter_reports_controlled_failure_when_all_devices_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adapter_reports_controlled_failure_when_all_devices_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeSink:
         def __init__(self, _device: object, _format: object, _parent: object) -> None:
             raise RuntimeError("cannot open")
