@@ -16,6 +16,7 @@ from daemon_reborn.animation.director import (
 from daemon_reborn.animation.player import PlaybackMode, SpriteClip, SpriteFrame, SpritePlayer
 from daemon_reborn.domain.behavior import BehaviorPolicy
 from daemon_reborn.domain.contracts import (
+    AnimationIntent,
     BehaviorSnapshot,
     InterruptPolicy,
     Priority,
@@ -235,3 +236,57 @@ def test_intent_policy_is_deterministic_and_bounded() -> None:
     assert result.priority is Priority.NORMAL
     assert result.interrupt_policy is InterruptPolicy.ALLOW
     assert result.loop is True
+
+
+def test_reaction_intent_is_one_shot() -> None:
+    result = resolve(
+        snapshot("idle", "idle", "neutral", "celebrate"),
+        {"idle", "celebrate"},
+        0,
+        policy(),
+    )
+
+    assert result.clip_id == "celebrate"
+    assert result.loop is False
+
+
+def test_apply_intent_preserves_one_shot_mode_on_player() -> None:
+    player = SpritePlayer(
+        [
+            SpriteClip.from_frames("idle", [SpriteFrame("idle", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("celebrate", [SpriteFrame("celebrate", 1.0)], PlaybackMode.LOOP),
+        ],
+        fallback="idle",
+        clock=lambda: 0.0,
+    )
+    intent = resolve(
+        snapshot("idle", "idle", "neutral", "celebrate"),
+        {"idle", "celebrate"},
+        0,
+        policy(),
+    )
+
+    assert apply_intent(player, intent, 0) == 1
+    assert player.clip.mode is PlaybackMode.ONCE
+
+
+def test_apply_intent_honors_never_interrupt_policy() -> None:
+    player = SpritePlayer(
+        [
+            SpriteClip.from_frames("idle", [SpriteFrame("idle", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("speaking", [SpriteFrame("speaking", 1.0)], PlaybackMode.LOOP),
+        ],
+        fallback="idle",
+        clock=lambda: 0.0,
+    )
+    current = player.play("speaking")
+    intent = AnimationIntent(
+        clip_id="idle",
+        priority=Priority.NORMAL,
+        interrupt_policy=InterruptPolicy.NEVER,
+        loop=True,
+    )
+
+    assert apply_intent(player, intent, current) is None
+    assert player.clip.name == "speaking"
+    assert player.generation == current

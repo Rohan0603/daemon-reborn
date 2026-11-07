@@ -89,7 +89,7 @@ def resolve(
         clip_id=clip_id,
         priority=Priority.NORMAL,
         interrupt_policy=InterruptPolicy.ALLOW,
-        loop=True,
+        loop=clip_id not in _REACTION_CLIPS,
     )
 
 

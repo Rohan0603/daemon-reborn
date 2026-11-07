@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from math import isfinite
 from time import monotonic
+
+from daemon_reborn.domain.contracts import InterruptPolicy
 
 
 class PlaybackMode(StrEnum):
@@ -104,10 +106,21 @@ class SpritePlayer:
         self._started_at = now - elapsed / speed
         self._speed = speed
 
-    def play(self, clip_name: str, *, now: float | None = None) -> int:
+    def play(
+        self,
+        clip_name: str,
+        *,
+        now: float | None = None,
+        mode: PlaybackMode | None = None,
+    ) -> int:
         """Interrupt the current clip and start a fresh generation."""
         started_at = self._clock() if now is None else self._validate_timestamp(now)
-        self._clip = self._clips.get(clip_name, self._clips[self._fallback])
+        clip = self._clips.get(clip_name, self._clips[self._fallback])
+        if mode is not None:
+            if not isinstance(mode, PlaybackMode):
+                raise TypeError("mode must be PlaybackMode or None")
+            clip = replace(clip, mode=mode)
+        self._clip = clip
         self._generation += 1
         self._stopped = False
         self._paused_at = None
@@ -116,14 +129,24 @@ class SpritePlayer:
         return self._generation
 
     def play_if_current(
-        self, clip_name: str, generation: int, *, now: float | None = None
+        self,
+        clip_name: str,
+        generation: int,
+        *,
+        now: float | None = None,
+        mode: PlaybackMode | None = None,
+        interrupt_policy: InterruptPolicy = InterruptPolicy.ALLOW,
     ) -> int | None:
         """Start a clip only when ``generation`` still owns the player."""
         if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
             raise TypeError("generation must be a non-negative integer")
+        if not isinstance(interrupt_policy, InterruptPolicy):
+            raise TypeError("interrupt_policy must be InterruptPolicy")
         if generation != self._generation:
             return None
-        return self.play(clip_name, now=now)
+        if interrupt_policy is InterruptPolicy.NEVER:
+            return None
+        return self.play(clip_name, now=now, mode=mode)
 
     def interrupt(self, generation: int, *, fallback: bool = True) -> int:
         """Ignore stale callers and optionally return to the fallback clip."""
