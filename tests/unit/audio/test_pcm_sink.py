@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 
 import pytest
+from PySide6.QtMultimedia import QAudio
 
 from daemon_reborn.audio.pcm_sink import (
     FIXTURE_FORMAT,
@@ -77,6 +78,74 @@ def test_cancelled_adapter_rejects_feed_from_invalidated_generation() -> None:
     adapter.stop()
 
     assert adapter.feed(result.generation, b"stale") == 0
+
+
+@pytest.mark.parametrize(
+    ("replacement", "reason"),
+    [(b"bad", "invalid-pcm"), (None, "no-output-device")],
+)
+def test_failed_replacement_invalidates_previous_generation(
+    replacement: bytes | None, reason: str
+) -> None:
+    devices = [AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))]
+    adapter = PcmAudioSinkAdapter(lambda: tuple(devices))
+    adapter.set_sink_writer(lambda data: len(data))
+    first = adapter.play(b"abcdefgh")
+    if replacement is None:
+        devices.clear()
+        replacement_data = generate_fixture_pcm(duration_ms=10)
+    else:
+        replacement_data = replacement
+
+    failed = adapter.play(replacement_data)
+
+    assert not failed.started
+    assert failed.reason == reason
+    assert failed.generation > first.generation
+    assert adapter.feed(first.generation, b"stale") == 0
+
+
+def test_qt_stopped_state_cleans_session_and_rebinds_active_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeIo:
+        def write(self, payload: bytes) -> int:
+            return len(payload)
+
+    class FakeSignal:
+        def connect(self, callback: object) -> None:
+            return None
+
+    class FakeSink:
+        def __init__(self, _device: object, _format: object, _parent: object) -> None:
+            self.stateChanged = FakeSignal()
+
+        def start(self) -> FakeIo:
+            return FakeIo()
+
+        def processedUSecs(self) -> int:
+            return 0
+
+        def reset(self) -> None:
+            return None
+
+    monkeypatch.setattr("daemon_reborn.audio.pcm_sink.QAudioSink", FakeSink)
+    device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,), qt_device="mock")
+    adapter = PcmAudioSinkAdapter(lambda: (device,))
+    first = adapter.play(b"abcdefgh")
+
+    adapter._on_qt_state_changed(QAudio.State.StoppedState)
+
+    stopped_state = adapter.state
+    assert stopped_state is SinkState.STOPPED
+    assert adapter._session is None
+    assert adapter.feed(first.generation, b"stale") == 0
+
+    adapter.on_audio_outputs_changed()
+
+    assert adapter.state is SinkState.PLAYING
+    assert adapter._session is not None
+    assert adapter._session.generation > first.generation
 
 
 def test_session_progress_uses_processed_bytes_not_elapsed_time() -> None:

@@ -341,11 +341,11 @@ class PcmAudioSinkAdapter(QObject):
 
     def play(self, data: bytes) -> PlaybackResult:
         self._assert_ui_thread()
-        if not data or len(data) % FIXTURE_FORMAT.bytes_per_frame:
-            return PlaybackResult(False, self._generation_counter + 1, "invalid-pcm")
-        self._reset_sink()
+        self._invalidate_current_playback()
         self._generation_counter += 1
         generation = self._generation_counter
+        if not data or len(data) % FIXTURE_FORMAT.bytes_per_frame:
+            return PlaybackResult(False, generation, "invalid-pcm")
         devices = [device for device in self._device_provider() if device.available]
         if not devices:
             self.state = SinkState.NO_DEVICE
@@ -392,6 +392,13 @@ class PcmAudioSinkAdapter(QObject):
         if state == QAudio.State.IdleState and self._session.queued_bytes:
             self.state = SinkState.UNDERRUN
         elif state == QAudio.State.StoppedState:
+            if self._session.state is SinkState.PLAYING and self._active_data is not None:
+                self._recovery_data = self._active_data
+            self._session.cancel()
+            self._session = None
+            self._device = None
+            self._active_data = None
+            self._reset_sink()
             self.state = SinkState.STOPPED
 
     def feed(self, generation: int, data: bytes) -> int:
@@ -482,6 +489,16 @@ class PcmAudioSinkAdapter(QObject):
             self._sink_writer = None
         self._processed_usecs_provider = None
         self._using_qt_writer = False
+
+    def _invalidate_current_playback(self) -> None:
+        session = self._session
+        self._session = None
+        self._device = None
+        self._active_data = None
+        self._recovery_data = None
+        if session is not None:
+            session.cancel()
+        self._reset_sink()
 
     def stop(self) -> None:
         self._assert_ui_thread()
