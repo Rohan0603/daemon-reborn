@@ -80,6 +80,23 @@ def test_cancelled_adapter_rejects_feed_from_invalidated_generation() -> None:
     assert adapter.feed(result.generation, b"stale") == 0
 
 
+def test_cancel_clears_stale_progress_telemetry() -> None:
+    device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))
+    adapter = PcmAudioSinkAdapter(lambda: (device,))
+    adapter.set_sink_writer(lambda data: min(2, len(data)))
+    result = adapter.play(b"abcdefgh")
+
+    assert adapter.pump() == 2
+    adapter.stop()
+
+    progress = adapter.progress()
+    assert progress.generation != result.generation
+    assert progress.processed_bytes == 0
+    assert progress.submitted_bytes == 0
+    assert progress.queued_bytes == 0
+    assert progress.queued_latency_us == 0
+
+
 @pytest.mark.parametrize(
     ("replacement", "reason"),
     [(b"bad", "invalid-pcm"), (None, "no-output-device")],
@@ -309,6 +326,31 @@ def test_adapter_rebinds_after_device_loss_when_output_returns() -> None:
     assert adapter._device is not None
     assert adapter._device.device_id == "two"
     assert adapter.feed(result.generation, b"stale") == 0
+
+
+def test_device_loss_rebind_resumes_from_unplayed_frame_aligned_remainder() -> None:
+    devices = [AudioDeviceInfo("one", "First", (FIXTURE_FORMAT,))]
+    writes: list[bytes] = []
+
+    def partial_writer(data: bytes) -> int:
+        writes.append(data)
+        return 2
+
+    adapter = PcmAudioSinkAdapter(lambda: tuple(devices))
+    adapter.set_sink_writer(partial_writer)
+    first = adapter.play(b"abcdefgh")
+    assert adapter.pump() == 2
+
+    devices.clear()
+    adapter.on_audio_outputs_changed()
+    devices.append(AudioDeviceInfo("two", "Second", (FIXTURE_FORMAT,)))
+    adapter.on_audio_outputs_changed()
+
+    assert adapter._session is not None
+    assert adapter._session.queued_bytes == 6
+    assert adapter.pump() == 2
+    assert writes[-1] == b"cdefgh"
+    assert adapter.feed(first.generation, b"stale") == 0
 
 
 def test_adapter_tries_supported_devices_until_one_opens(monkeypatch: pytest.MonkeyPatch) -> None:

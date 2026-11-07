@@ -182,6 +182,7 @@ class PcmPlaybackSession:
         self.format = format
         self.max_queue_bytes = max_queue_bytes - max_queue_bytes % format.bytes_per_frame
         self._queue = bytearray()
+        self._inflight = bytearray()
         self._source: bytes = b""
         self._source_offset = 0
         self._total_bytes = 0
@@ -216,6 +217,7 @@ class PcmPlaybackSession:
     def begin(self, data: bytes, generation: int | None = None) -> int:
         self._generation = self._generation + 1 if generation is None else generation
         self._queue.clear()
+        self._inflight.clear()
         self._source = data
         self._source_offset = 0
         self._processed_bytes = 0
@@ -264,14 +266,19 @@ class PcmPlaybackSession:
         return data
 
     def mark_submitted(self, count: int) -> int:
-        submitted = self.discard(count)
+        count -= count % self.format.bytes_per_frame
+        submitted = min(count, len(self._queue))
+        self._inflight.extend(self._queue[:submitted])
+        del self._queue[:submitted]
         self._submitted_bytes = min(self._total_bytes, self._submitted_bytes + submitted)
         self._fill_queue()
         return submitted
 
     def update_processed_usecs(self, processed_usecs: int) -> None:
         processed = round(max(0, processed_usecs) * self.format.bytes_per_second / 1_000_000)
-        self._processed_bytes = min(self._submitted_bytes, processed)
+        new_processed = min(self._submitted_bytes, processed)
+        del self._inflight[: max(0, new_processed - self._processed_bytes)]
+        self._processed_bytes = new_processed
         if (
             self._processed_bytes >= self._total_bytes
             and not self._queue
@@ -285,7 +292,9 @@ class PcmPlaybackSession:
         count = max(0, count)
         if self._submitted_bytes == 0:
             self._submitted_bytes = self.mark_submitted(count)
-        self._processed_bytes = min(self._submitted_bytes, self._processed_bytes + count)
+        new_processed = min(self._submitted_bytes, self._processed_bytes + count)
+        del self._inflight[: max(0, new_processed - self._processed_bytes)]
+        self._processed_bytes = new_processed
         if (
             self._processed_bytes >= self._total_bytes
             and not self._queue
@@ -299,11 +308,18 @@ class PcmPlaybackSession:
     def cancel(self) -> bool:
         was_active = self.state is SinkState.PLAYING
         self._queue.clear()
+        self._inflight.clear()
         self._source = b""
         self._source_offset = 0
+        self._total_bytes = 0
+        self._submitted_bytes = 0
+        self._processed_bytes = 0
         self._generation += 1
         self.state = SinkState.CANCELLED
         return was_active
+
+    def unplayed_data(self) -> bytes:
+        return bytes(self._inflight) + bytes(self._queue) + self._source[self._source_offset :]
 
     def progress(self, generation: int | None = None) -> PlaybackProgress:
         return PlaybackProgress(
@@ -339,8 +355,8 @@ class PcmAudioSinkAdapter(QObject):
         self._pump_timer.timeout.connect(self.pump)
         self._generation_counter = 0
         self._muted = False
-        self._active_data: bytes | None = None
-        self._recovery_data: bytes | None = None
+        self._active_format: PcmFormat | None = None
+        self._recovery_data: tuple[bytes, PcmFormat] | None = None
         self.state = SinkState.IDLE
         self._media_devices = QMediaDevices(self)
         self._media_devices.audioOutputsChanged.connect(self.on_audio_outputs_changed)
@@ -353,12 +369,12 @@ class PcmAudioSinkAdapter(QObject):
         if threading.get_ident() != self._owner_thread_id:
             raise RuntimeError("audio sink must be used from the UI thread")
 
-    def play(self, data: bytes) -> PlaybackResult:
+    def play(self, data: bytes, source_format: PcmFormat = FIXTURE_FORMAT) -> PlaybackResult:
         self._assert_ui_thread()
         self._invalidate_current_playback()
         self._generation_counter += 1
         generation = self._generation_counter
-        if not data or len(data) % FIXTURE_FORMAT.bytes_per_frame:
+        if not data or len(data) % source_format.bytes_per_frame:
             return PlaybackResult(False, generation, "invalid-pcm")
         devices = [device for device in self._device_provider() if device.available]
         if not devices:
@@ -368,13 +384,13 @@ class PcmAudioSinkAdapter(QObject):
         for device in devices:
             try:
                 selection = choose_supported_format(device)
-                converted = convert_pcm16(data, FIXTURE_FORMAT, selection.format)
+                converted = convert_pcm16(data, source_format, selection.format)
                 session = PcmPlaybackSession(selection.format)
                 session.begin(converted, generation)
                 session.set_muted(self._muted)
                 self._session = session
                 self._device = device
-                self._active_data = data
+                self._active_format = selection.format
                 if self._sink_writer is None and device.qt_device is not None:
                     attempted = True
                     sink = QAudioSink(device.qt_device, _qt_format(selection.format), self)
@@ -396,7 +412,6 @@ class PcmAudioSinkAdapter(QObject):
                 self._session = None
                 self._device = None
                 continue
-        self._active_data = None
         self.state = SinkState.STOPPED if attempted or devices else SinkState.NO_DEVICE
         return PlaybackResult(
             False, generation, "sink-open-failed" if attempted or devices else "no-output-device"
@@ -408,12 +423,13 @@ class PcmAudioSinkAdapter(QObject):
         if state == QAudio.State.IdleState and self._session.queued_bytes:
             self.state = SinkState.UNDERRUN
         elif state == QAudio.State.StoppedState:
-            if self._session.state is SinkState.PLAYING and self._active_data is not None:
-                self._recovery_data = self._active_data
+            self._update_processed_clock()
+            if self._session.state is SinkState.PLAYING and self._active_format is not None:
+                self._recovery_data = (self._session.unplayed_data(), self._active_format)
             self._session.cancel()
             self._session = None
             self._device = None
-            self._active_data = None
+            self._active_format = None
             self._reset_sink()
             self.state = SinkState.STOPPED
 
@@ -493,15 +509,16 @@ class PcmAudioSinkAdapter(QObject):
         self._assert_ui_thread()
         current_ids = {device.device_id for device in self._device_provider() if device.available}
         if self._device is None and self._recovery_data is not None and current_ids:
-            data = self._recovery_data
+            data, data_format = self._recovery_data
             self._recovery_data = None
-            result = self.play(data)
+            result = self.play(data, data_format)
             if not result.started:
-                self._recovery_data = data
+                self._recovery_data = (data, data_format)
         elif self._device is None or self._device.device_id not in current_ids:
             was_active = self._session is not None and self._session.state is SinkState.PLAYING
-            if was_active:
-                self._recovery_data = self._active_data
+            self._update_processed_clock()
+            if was_active and self._session is not None and self._active_format is not None:
+                self._recovery_data = (self._session.unplayed_data(), self._active_format)
             self._reset_sink()
             if self._session:
                 self._session.cancel()
@@ -523,7 +540,7 @@ class PcmAudioSinkAdapter(QObject):
         session = self._session
         self._session = None
         self._device = None
-        self._active_data = None
+        self._active_format = None
         self._recovery_data = None
         if session is not None:
             session.cancel()
@@ -534,7 +551,7 @@ class PcmAudioSinkAdapter(QObject):
         self._reset_sink()
         if self._session:
             self._session.cancel()
-        self._active_data = None
+        self._active_format = None
         self._recovery_data = None
         self.state = SinkState.STOPPED
 
