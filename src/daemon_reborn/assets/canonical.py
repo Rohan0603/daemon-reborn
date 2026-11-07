@@ -9,6 +9,7 @@ import re
 import struct
 import threading
 import zlib
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,12 +95,15 @@ class CanonicalAssetPack:
 
 
 class CanonicalAssetCache:
-    """Monotonic in-memory cache keyed by verified schema and artifact digests."""
+    """Bounded per-root LRU cache keyed by verified artifact digests."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_roots: int = 32) -> None:
+        if isinstance(max_roots, bool) or not isinstance(max_roots, int) or max_roots < 1:
+            raise ValueError("max_roots must be a positive integer")
         self._lock = threading.RLock()
-        self._entries: dict[tuple[object, ...], CanonicalAssetPack] = {}
-        self._roots: dict[Path, tuple[object, ...]] = {}
+        self._max_roots = max_roots
+        self._entries: dict[Path, tuple[tuple[object, ...], CanonicalAssetPack]] = {}
+        self._roots: OrderedDict[Path, tuple[object, ...]] = OrderedDict()
 
     def load(self, asset_root: Path) -> CanonicalAssetPack:
         pack, key = _load(asset_root)
@@ -107,9 +111,14 @@ class CanonicalAssetCache:
         with self._lock:
             cached_key = self._roots.get(root)
             if cached_key == key:
-                return self._entries[key]
-            self._entries[key] = pack
+                self._roots.move_to_end(root)
+                return self._entries[root][1]
+            self._entries[root] = (key, pack)
             self._roots[root] = key
+            self._roots.move_to_end(root)
+            while len(self._roots) > self._max_roots:
+                evicted_root, _ = self._roots.popitem(last=False)
+                self._entries.pop(evicted_root, None)
             return pack
 
 
@@ -117,6 +126,17 @@ def load_canonical_assets(asset_root: Path) -> CanonicalAssetPack:
     """Load and validate one complete ORC-185 canonical asset directory."""
 
     return _load(asset_root)[0]
+
+
+def load_canonical_assets_with_fallback(
+    asset_root: Path, packaged_idle_root: Path
+) -> CanonicalAssetPack:
+    """Load optional assets, falling back to a trusted packaged idle pack."""
+
+    try:
+        return load_canonical_assets(asset_root)
+    except CanonicalAssetError:
+        return load_canonical_assets(packaged_idle_root)
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -129,22 +149,29 @@ _MAX_PNG_BYTES = 128 * 1024 * 1024
 
 def _load(asset_root: Path) -> tuple[CanonicalAssetPack, tuple[object, ...]]:
     root = _safe_root(asset_root)
-    files = {name: _safe_file(root, name) for name in ("manifest.json", "atlas.png", "provenance.json", "SHA256SUMS.txt")}
-    sums_bytes = _read_bounded(files["SHA256SUMS.txt"], "SHA256SUMS.txt")
+    names = ("manifest.json", "atlas.png", "provenance.json", "SHA256SUMS.txt")
+    root_fd = _open_root(root)
+    try:
+        file_bytes = {name: _read_root_file(root, root_fd, name) for name in names}
+    finally:
+        if root_fd >= 0:
+            os.close(root_fd)
+    sums_bytes = file_bytes["SHA256SUMS.txt"]
     sums = _parse_sums(sums_bytes)
-    actual = {name: _sha256(_read_bounded(path, name)) for name, path in files.items()}
+    actual = {name: _sha256(data) for name, data in file_bytes.items()}
     for name in ("manifest.json", "atlas.png", "provenance.json"):
         expected = sums.get(name)
         if expected != actual[name]:
             raise CanonicalAssetError(
                 f"{name} digest mismatch: expected {expected or 'missing'}, actual {actual[name]}"
             )
-    manifest_bytes = _read_bounded(files["manifest.json"], "manifest.json")
-    provenance_bytes = _read_bounded(files["provenance.json"], "provenance.json")
+    manifest_bytes = file_bytes["manifest.json"]
+    provenance_bytes = file_bytes["provenance.json"]
     manifest = _json_object(manifest_bytes, "manifest.json")
     provenance = _json_object(provenance_bytes, "provenance.json")
-    _validate_provenance(provenance, actual)
-    pack = _parse_manifest(manifest, _read_bounded(files["atlas.png"], "atlas.png"), actual)
+    _validate_manifest_metadata(manifest)
+    _validate_provenance(provenance, actual, manifest)
+    pack = _parse_manifest(manifest, file_bytes["atlas.png"], actual)
     key = (pack.schema_version, pack.manifest_sha256, pack.atlas_sha256, pack.provenance_sha256, actual["SHA256SUMS.txt"])
     return pack, key
 
@@ -191,6 +218,8 @@ def _parse_manifest(manifest: Mapping[str, Any], atlas_bytes: bytes, actual: Map
     atlas = _object(manifest, "atlas")
     if atlas.get("filename") != "atlas.png":
         raise CanonicalAssetError("atlas filename must be exactly atlas.png")
+    if atlas.get("width") != atlas_width or atlas.get("height") != atlas_height:
+        raise CanonicalAssetError("atlas dimensions do not match the PNG")
     if atlas.get("sha256") != actual["atlas.png"]:
         raise CanonicalAssetError("atlas.png digest does not match manifest")
 
@@ -241,6 +270,7 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
         raise CanonicalAssetError(f"clips must contain 1..{_MAX_CLIPS} entries")
     clips: list[CanonicalClip] = []
     names: set[str] = set()
+    used_frames: set[int] = set()
     for index, raw in enumerate(raw_clips):
         item = _mapping(raw, f"clip {index}")
         name = item.get("name")
@@ -256,6 +286,12 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
             if frame_id in frame_ids:
                 raise CanonicalAssetError(f"clip {name} contains duplicate frame ids")
             frame_ids.append(frame_id)
+        overlap = used_frames.intersection(frame_ids)
+        if overlap:
+            raise CanonicalAssetError(
+                f"frame ids cannot occur in multiple clips: {sorted(overlap)}"
+            )
+        used_frames.update(frame_ids)
         loop = item.get("loop", True)
         if not isinstance(loop, bool):
             raise CanonicalAssetError(f"clip {name} has invalid loop flag")
@@ -270,17 +306,52 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
     return clips
 
 
-def _validate_provenance(provenance: Mapping[str, Any], actual: Mapping[str, str]) -> None:
+def _validate_manifest_metadata(manifest: Mapping[str, Any]) -> None:
+    if set(manifest) != {
+        "schema_version", "editor", "source", "canvas", "frames", "tags", "fallback", "atlas"
+    } and set(manifest) != {
+        "schema_version", "editor", "source", "canvas", "frames", "clips", "fallback", "atlas"
+    }:
+        raise CanonicalAssetError("manifest contains an unsupported or missing schema field")
+    editor = _object(manifest, "editor")
+    if set(editor) != {"name", "version"} or not all(
+        isinstance(editor.get(key), str) and editor[key].strip() for key in ("name", "version")
+    ):
+        raise CanonicalAssetError("manifest editor metadata is invalid")
+    source = _object(manifest, "source")
+    if set(source) != {"filename", "license", "sha256"}:
+        raise CanonicalAssetError("manifest source metadata is invalid")
+    filename = source.get("filename")
+    if (
+        not isinstance(filename, str)
+        or not filename.strip()
+        or Path(filename).name != filename
+        or filename in {".", ".."}
+    ):
+        raise CanonicalAssetError("manifest source filename is invalid")
+    if not isinstance(source.get("license"), str) or not source["license"].strip():
+        raise CanonicalAssetError("manifest source license is required")
+    if not isinstance(source.get("sha256"), str) or not _SHA256.fullmatch(source["sha256"]):
+        raise CanonicalAssetError("manifest source sha256 is invalid")
+
+
+def _validate_provenance(
+    provenance: Mapping[str, Any], actual: Mapping[str, str], manifest: Mapping[str, Any]
+) -> None:
     if provenance.get("schema_version") != 1:
         raise CanonicalAssetError("provenance schema_version must be 1")
+    if set(provenance) != {"schema_version", "editor", "source", "files"}:
+        raise CanonicalAssetError("provenance contains an unsupported or missing schema field")
+    if provenance["editor"] != manifest["editor"] or provenance["source"] != manifest["source"]:
+        raise CanonicalAssetError("provenance metadata has manifest parity mismatch")
     files = _object(provenance, "files")
+    if set(files) != {"atlas.png", "manifest.json"}:
+        raise CanonicalAssetError("provenance files must name atlas.png and manifest.json exactly")
     for name in ("atlas.png", "manifest.json"):
-        if files.get(name) != actual[name]:
+        if not isinstance(files.get(name), str) or not _SHA256.fullmatch(files[name]):
+            raise CanonicalAssetError(f"provenance {name} hash is invalid")
+        if files[name] != actual[name]:
             raise CanonicalAssetError(f"provenance {name} digest mismatch")
-    source = _object(provenance, "source")
-    license_name = source.get("license")
-    if not isinstance(license_name, str) or not license_name.strip():
-        raise CanonicalAssetError("provenance source license is required")
 
 
 def _safe_root(path: Path) -> Path:
@@ -324,6 +395,95 @@ def _read_bounded(path: Path, name: str) -> bytes:
         raise CanonicalAssetError(f"cannot read {name}: {exc}") from exc
 
 
+def _open_root(root: Path) -> int:
+    # CPython on Windows exposes neither openat/dir_fd nor O_DIRECTORY. The
+    # per-file reparse-point check plus an opened handle is the strongest
+    # stdlib-only boundary available there; POSIX uses a pinned directory fd.
+    if os.name == "nt":
+        return -1
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(root, flags)
+    except OSError as exc:
+        raise CanonicalAssetError(f"cannot securely open asset root: {root}") from exc
+
+
+def _read_root_file(root: Path, root_fd: int, name: str) -> bytes:
+    _safe_file(root, name)
+    try:
+        fd = _open_asset_fd(root, root_fd, name)
+    except OSError as exc:
+        raise CanonicalAssetError(f"cannot securely open {name}") from exc
+    try:
+        stat_result = os.fstat(fd)
+        if not stat_result.st_mode & 0o170000 == 0o100000:
+            raise CanonicalAssetError(f"asset path is not a regular in-root file: {name}")
+        if getattr(stat_result, "st_file_attributes", 0) & 0x400:
+            raise CanonicalAssetError(f"asset path is a reparse point: {name}")
+        if stat_result.st_size > _MAX_FILE_BYTES:
+            raise CanonicalAssetError(f"{name} exceeds bounded size limit")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(1024 * 1024, _MAX_FILE_BYTES - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > _MAX_FILE_BYTES:
+                raise CanonicalAssetError(f"{name} exceeds bounded size limit")
+            chunks.append(chunk)
+        return b"".join(chunks)
+    except CanonicalAssetError:
+        raise
+    except OSError as exc:
+        raise CanonicalAssetError(f"cannot read {name}: {exc}") from exc
+    finally:
+        os.close(fd)
+
+
+def _open_asset_fd(root: Path, root_fd: int, name: str) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if os.name != "nt":
+        return os.open(name, flags, dir_fd=root_fd)
+
+    # Windows has no O_NOFOLLOW in CPython. CreateFileW's
+    # FILE_FLAG_OPEN_REPARSE_POINT opens the named object itself, allowing the
+    # handle's file attributes to reject links/reparse points before reading.
+    import ctypes
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    ]
+    create_file.restype = ctypes.c_void_p
+    invalid_handle = ctypes.c_void_p(-1).value
+    handle = create_file(
+        str(root / name),
+        0x80000000,  # GENERIC_READ
+        0x00000007,  # share read/write/delete
+        None,
+        3,  # OPEN_EXISTING
+        0x00200000 | 0x08000000,  # OPEN_REPARSE_POINT | SEQUENTIAL_SCAN
+        None,
+    )
+    if handle in (None, invalid_handle):
+        error = ctypes.get_last_error()
+        raise OSError(error, f"CreateFileW failed for {name}")
+    try:
+        return msvcrt.open_osfhandle(handle, flags)
+    except OSError:
+        kernel32.CloseHandle(handle)
+        raise
+
+
 def _json_object(data: bytes, name: str) -> Mapping[str, Any]:
     try:
         value = json.loads(data.decode("utf-8"))
@@ -334,7 +494,11 @@ def _json_object(data: bytes, name: str) -> Mapping[str, Any]:
 
 def _parse_sums(data: bytes) -> dict[str, str]:
     result: dict[str, str] = {}
-    for line in data.decode("utf-8").splitlines():
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CanonicalAssetError("SHA256SUMS.txt is not valid UTF-8") from exc
+    for line in text.splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  (manifest\.json|atlas\.png|provenance\.json)", line)
         if not match or match[2] in result:
             raise CanonicalAssetError("SHA256SUMS.txt contains an invalid or duplicate entry")
@@ -375,14 +539,22 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
     offset = 8
     idat = bytearray()
     width = height = None
-    while offset + 12 <= len(data):
+    saw_iend = False
+    while offset < len(data):
+        if offset + 12 > len(data):
+            raise CanonicalAssetError("atlas.png contains a truncated chunk")
         size = struct.unpack(">I", data[offset : offset + 4])[0]
         payload_end = offset + 8 + size
         if payload_end + 4 > len(data):
             raise CanonicalAssetError("atlas.png contains a truncated chunk")
         kind = data[offset + 4 : offset + 8]
         payload = data[offset + 8 : payload_end]
+        actual_crc = struct.unpack(">I", data[payload_end : payload_end + 4])[0]
+        if zlib.crc32(kind + payload) & 0xFFFFFFFF != actual_crc:
+            raise CanonicalAssetError(f"atlas.png chunk {kind.decode('ascii', 'replace')} has invalid CRC")
         if kind == b"IHDR":
+            if offset != 8 or width is not None:
+                raise CanonicalAssetError("atlas.png has an invalid IHDR position")
             if len(payload) != 13:
                 raise CanonicalAssetError("atlas.png has an invalid IHDR")
             width, height, depth, color, compression, filtering, interlace = struct.unpack(">IIBBBBB", payload)
@@ -393,8 +565,14 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
             if len(idat) > _MAX_PNG_BYTES:
                 raise CanonicalAssetError("atlas.png compressed data exceeds bounds")
         elif kind == b"IEND":
+            if size != 0:
+                raise CanonicalAssetError("atlas.png has an invalid IEND")
+            saw_iend = True
+            offset = payload_end + 4
             break
         offset = payload_end + 4
+    if not saw_iend or offset != len(data):
+        raise CanonicalAssetError("atlas.png must end exactly at IEND")
     if width is None or height is None or not idat:
         raise CanonicalAssetError("atlas.png is missing required RGBA data")
     expected = height * (width * 4 + 1)
@@ -406,4 +584,9 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
         raise CanonicalAssetError("atlas.png image data is corrupt") from exc
     if len(decoded) != expected:
         raise CanonicalAssetError("atlas.png scanline data is truncated")
+    row_size = width * 4
+    for row in range(height):
+        filter_type = decoded[row * (row_size + 1)]
+        if filter_type > 4:
+            raise CanonicalAssetError(f"atlas.png uses unsupported filter {filter_type}")
     return width, height

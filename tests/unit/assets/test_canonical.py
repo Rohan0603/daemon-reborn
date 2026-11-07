@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import struct
 import zlib
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from daemon_reborn.assets.canonical import (
     CanonicalAssetCache,
     CanonicalAssetError,
     load_canonical_assets,
+    load_canonical_assets_with_fallback,
 )
 
 
@@ -36,13 +38,41 @@ def _png_rgba(width: int, height: int) -> bytes:
     )
 
 
-def _write_pack(root: Path, *, duration_ms: int = 100, tags: list[dict[str, object]] | None = None) -> None:
+def _replace_idat(data: bytes, replacement: bytes) -> bytes:
+    result = bytearray(data[:8])
+    offset = 8
+    while offset < len(data):
+        size = struct.unpack(">I", data[offset : offset + 4])[0]
+        kind = data[offset + 4 : offset + 8]
+        payload_end = offset + 8 + size
+        payload = data[offset + 8 : payload_end]
+        if kind == b"IDAT":
+            payload = replacement
+        result.extend(
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+        offset = payload_end + 4
+        if kind == b"IEND":
+            break
+    return bytes(result)
+
+
+def _write_pack(
+    root: Path,
+    *,
+    duration_ms: int = 100,
+    tags: list[dict[str, object]] | None = None,
+) -> None:
     root.mkdir(parents=True, exist_ok=True)
     atlas = _png_rgba(4, 2)
     (root / "atlas.png").write_bytes(atlas)
     manifest = {
         "schema_version": 1,
         "editor": {"name": "Pixelorama", "version": "v1.2.4-stable"},
+        "source": {"filename": "placeholder.pxo", "license": "CC0-1.0", "sha256": "0" * 64},
         "canvas": {"width": 2, "height": 2, "fps": 10},
         "frames": [
             {"id": 0, "duration_ms": duration_ms, "x": 0, "y": 0, "width": 2, "height": 2},
@@ -62,6 +92,29 @@ def _write_pack(root: Path, *, duration_ms: int = 100, tags: list[dict[str, obje
             "atlas.png": hashlib.sha256(atlas).hexdigest(),
             "manifest.json": hashlib.sha256(manifest_bytes).hexdigest(),
         },
+    }
+    provenance_bytes = (json.dumps(provenance, sort_keys=True, indent=2) + "\n").encode()
+    (root / "provenance.json").write_bytes(provenance_bytes)
+    entries = {
+        "atlas.png": hashlib.sha256(atlas).hexdigest(),
+        "manifest.json": hashlib.sha256(manifest_bytes).hexdigest(),
+        "provenance.json": hashlib.sha256(provenance_bytes).hexdigest(),
+    }
+    (root / "SHA256SUMS.txt").write_text(
+        "".join(f"{digest}  {name}\n" for name, digest in sorted(entries.items())), encoding="utf-8"
+    )
+
+
+def _refresh_hashes(root: Path) -> None:
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    atlas = (root / "atlas.png").read_bytes()
+    manifest["atlas"]["sha256"] = hashlib.sha256(atlas).hexdigest()
+    manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
+    (root / "manifest.json").write_bytes(manifest_bytes)
+    provenance = json.loads((root / "provenance.json").read_text(encoding="utf-8"))
+    provenance["files"] = {
+        "atlas.png": hashlib.sha256(atlas).hexdigest(),
+        "manifest.json": hashlib.sha256(manifest_bytes).hexdigest(),
     }
     provenance_bytes = (json.dumps(provenance, sort_keys=True, indent=2) + "\n").encode()
     (root / "provenance.json").write_bytes(provenance_bytes)
@@ -140,3 +193,109 @@ def test_pixmap_construction_requires_qt_application(tmp_path: Path) -> None:
 
     with pytest.raises(CanonicalAssetError, match="QApplication|GUI thread"):
         pack.build_pixmap()
+
+
+@pytest.mark.parametrize("mutation", ["crc", "trailing", "filter"])
+def test_rejects_noncanonical_png_bytes_after_digest_update(tmp_path: Path, mutation: str) -> None:
+    _write_pack(tmp_path)
+    data = bytearray((tmp_path / "atlas.png").read_bytes())
+    if mutation == "crc":
+        data[-5] ^= 1
+    elif mutation == "trailing":
+        data.extend(b"trailing")
+    else:
+        rows = b"".join(b"\x05" + bytes((20, 40, 60, 255)) * 4 for _ in range(2))
+        data = bytearray(_replace_idat(bytes(data), zlib.compress(rows)))
+    (tmp_path / "atlas.png").write_bytes(data)
+    _refresh_hashes(tmp_path)
+
+    with pytest.raises(CanonicalAssetError, match="CRC|IEND|filter|corrupt"):
+        load_canonical_assets(tmp_path)
+
+
+def test_rejects_frame_reuse_across_clips(tmp_path: Path) -> None:
+    _write_pack(
+        tmp_path,
+        tags=[{"name": "idle", "from_frame": 0, "to_frame": 0}],
+    )
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    manifest.pop("tags")
+    manifest["clips"] = [
+        {"name": "idle", "frame_ids": [0]},
+        {"name": "blink", "frame_ids": [0, 1]},
+    ]
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    _refresh_hashes(tmp_path)
+
+    with pytest.raises(CanonicalAssetError, match="multiple clips|overlap"):
+        load_canonical_assets(tmp_path)
+
+
+def test_rejects_provenance_schema_and_filename_parity_breaks(tmp_path: Path) -> None:
+    _write_pack(tmp_path)
+    provenance = json.loads((tmp_path / "provenance.json").read_text(encoding="utf-8"))
+    provenance["source"]["filename"] = "other.pxo"
+    (tmp_path / "provenance.json").write_text(
+        json.dumps(provenance, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    _refresh_hashes(tmp_path)
+
+    with pytest.raises(CanonicalAssetError, match="filename|parity"):
+        load_canonical_assets(tmp_path)
+
+
+def test_wraps_invalid_utf8_checksum_as_canonical_error(tmp_path: Path) -> None:
+    _write_pack(tmp_path)
+    (tmp_path / "SHA256SUMS.txt").write_bytes(b"\xff\xfe")
+
+    with pytest.raises(CanonicalAssetError, match="UTF-8|checksum"):
+        load_canonical_assets(tmp_path)
+
+
+def test_cache_evicts_old_roots_with_lru_bound(tmp_path: Path) -> None:
+    cache = CanonicalAssetCache(max_roots=2)
+    roots = [tmp_path / str(index) for index in range(3)]
+    for root in roots:
+        _write_pack(root)
+        cache.load(root)
+
+    assert len(cache._entries) == 2
+    assert len(cache._roots) == 2
+
+
+def test_loader_reads_validated_files_without_path_read_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_pack(tmp_path)
+
+    def fail(*_args: object, **_kwargs: object) -> bytes:
+        raise AssertionError("validated asset must be read through an opened handle")
+
+    monkeypatch.setattr(Path, "read_bytes", fail)
+    load_canonical_assets(tmp_path)
+
+
+def test_rejects_symlinked_artifact_before_handle_read(tmp_path: Path) -> None:
+    _write_pack(tmp_path)
+    outside = tmp_path.parent / "outside-manifest.json"
+    outside.write_text((tmp_path / "manifest.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "manifest.json").unlink()
+    try:
+        os.symlink(outside, tmp_path / "manifest.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is unavailable in this environment")
+
+    with pytest.raises(CanonicalAssetError, match="outside|symlink|regular|unsafe"):
+        load_canonical_assets(tmp_path)
+
+
+def test_packaged_idle_fallback_is_an_explicit_boundary(tmp_path: Path) -> None:
+    packaged = tmp_path / "packaged"
+    optional = tmp_path / "optional"
+    _write_pack(packaged, duration_ms=777)
+    _write_pack(optional)
+    (optional / "manifest.json").write_bytes(b"broken")
+
+    pack = load_canonical_assets_with_fallback(optional, packaged)
+
+    assert pack.frames[0].duration_ms == 777

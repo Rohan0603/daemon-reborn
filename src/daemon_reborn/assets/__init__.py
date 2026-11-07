@@ -13,6 +13,7 @@ from daemon_reborn.assets.canonical import (
     CanonicalClip,
     CanonicalFrame,
     load_canonical_assets,
+    load_canonical_assets_with_fallback,
 )
 from daemon_reborn.assets.export import AssetExportError, export_pixelorama
 
@@ -28,5 +29,6 @@ __all__ = [
     "RuntimeTag",
     "export_pixelorama",
     "load_canonical_assets",
+    "load_canonical_assets_with_fallback",
     "load_runtime_manifest",
 ]
