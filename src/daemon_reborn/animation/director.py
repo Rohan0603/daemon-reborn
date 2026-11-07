@@ -130,9 +130,7 @@ def _select_clip(snapshot: BehaviorSnapshot) -> str:
 
 
 def _snapshot_is_valid(snapshot: BehaviorSnapshot) -> bool:
-    return all(
-        getattr(snapshot, name) in allowed for name, allowed in _VALID_DIMENSIONS.items()
-    )
+    return all(getattr(snapshot, name) in allowed for name, allowed in _VALID_DIMENSIONS.items())
 
 
 def _emit_diagnostic(diagnostic: Callable[[str], None] | None, code: str) -> None:

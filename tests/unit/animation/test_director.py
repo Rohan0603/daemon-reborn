@@ -74,15 +74,35 @@ def test_resolve_uses_deterministic_precedence(
 ) -> None:
     result = resolve(
         snapshot(physical, activity, emotion, reaction),
-        {"idle", "chase", "fall", "drag", "thinking", "speaking", "happy", "sad",
-         "surprised", "celebrate", "disappointed"},
+        {
+            "idle",
+            "chase",
+            "fall",
+            "drag",
+            "thinking",
+            "speaking",
+            "happy",
+            "sad",
+            "surprised",
+            "celebrate",
+            "disappointed",
+        },
         previous_generation=4,
         policy=policy(),
     )
     assert result.clip_id == expected
     assert result.clip_id in {
-        "idle", "chase", "fall", "drag", "thinking", "speaking", "happy", "sad",
-        "surprised", "celebrate", "disappointed",
+        "idle",
+        "chase",
+        "fall",
+        "drag",
+        "thinking",
+        "speaking",
+        "happy",
+        "sad",
+        "surprised",
+        "celebrate",
+        "disappointed",
     }
 
 
@@ -90,25 +110,31 @@ def test_resolve_falls_back_to_packaged_idle_for_empty_or_invalid_catalog() -> N
     state = snapshot("idle", "speaking", "happy", "celebrate")
     diagnostics: list[str] = []
     assert resolve(state, set(), 0, policy(), diagnostic=diagnostics.append).clip_id == "idle"
-    assert resolve(
-        state,
-        {"C:\\user\\arbitrary.png", "tool_output"},
-        0,
-        policy(),
-        diagnostic=diagnostics.append,
-    ).clip_id == "idle"
+    assert (
+        resolve(
+            state,
+            {"C:\\user\\arbitrary.png", "tool_output"},
+            0,
+            policy(),
+            diagnostic=diagnostics.append,
+        ).clip_id
+        == "idle"
+    )
     assert diagnostics == ["empty_catalog", "invalid_catalog"]
 
 
 def test_resolve_falls_back_when_selected_clip_is_unavailable() -> None:
     diagnostics: list[str] = []
-    assert resolve(
-        snapshot("drag", "idle", "neutral", "none"),
-        {"idle", "chase"},
-        0,
-        policy(),
-        diagnostic=diagnostics.append,
-    ).clip_id == "idle"
+    assert (
+        resolve(
+            snapshot("drag", "idle", "neutral", "none"),
+            {"idle", "chase"},
+            0,
+            policy(),
+            diagnostic=diagnostics.append,
+        ).clip_id
+        == "idle"
+    )
     assert diagnostics == ["unavailable_clip"]
 
 
@@ -136,7 +162,9 @@ def test_apply_intent_rejects_stale_generation_before_player_mutation() -> None:
     )
     current = player.play("speaking")
     stale = current - 1
-    intent = resolve(snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, stale, policy())
+    intent = resolve(
+        snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, stale, policy()
+    )
 
     assert apply_intent(player, intent, stale) is None
     assert player.clip.name == "speaking"
@@ -152,7 +180,9 @@ def test_apply_intent_advances_current_generation() -> None:
         fallback="idle",
         clock=lambda: 0.0,
     )
-    intent = resolve(snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, 0, policy())
+    intent = resolve(
+        snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, 0, policy()
+    )
 
     next_generation = apply_intent(player, intent, 0)
 
@@ -168,7 +198,9 @@ def test_resolve_is_idempotent_and_does_not_mutate_policy() -> None:
     assert first == second
 
 
-@pytest.mark.parametrize("generation, previous, expected", [(0, 0, True), (4, 4, True), (3, 4, False)])
+@pytest.mark.parametrize(
+    "generation, previous, expected", [(0, 0, True), (4, 4, True), (3, 4, False)]
+)
 def test_generation_cancellation_rejects_stale_results(
     generation: int, previous: int, expected: bool
 ) -> None:
@@ -197,7 +229,9 @@ def test_resolver_has_no_filesystem_or_llm_execution_paths() -> None:
 
 
 def test_intent_policy_is_deterministic_and_bounded() -> None:
-    result = resolve(snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, 2, policy())
+    result = resolve(
+        snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, 2, policy()
+    )
     assert result.priority is Priority.NORMAL
     assert result.interrupt_policy is InterruptPolicy.ALLOW
     assert result.loop is True

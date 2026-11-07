@@ -115,7 +115,9 @@ class SpritePlayer:
         self._started_at = started_at
         return self._generation
 
-    def play_if_current(self, clip_name: str, generation: int, *, now: float | None = None) -> int | None:
+    def play_if_current(
+        self, clip_name: str, generation: int, *, now: float | None = None
+    ) -> int | None:
         """Start a clip only when ``generation`` still owns the player."""
         if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
             raise TypeError("generation must be a non-negative integer")
