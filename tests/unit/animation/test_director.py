@@ -290,3 +290,26 @@ def test_apply_intent_honors_never_interrupt_policy() -> None:
     assert apply_intent(player, intent, current) is None
     assert player.clip.name == "speaking"
     assert player.generation == current
+
+
+def test_apply_intent_queues_without_replacing_active_clip() -> None:
+    player = SpritePlayer(
+        [
+            SpriteClip.from_frames("idle", [SpriteFrame("idle", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("speaking", [SpriteFrame("speaking", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("celebrate", [SpriteFrame("celebrate", 1.0)], PlaybackMode.LOOP),
+        ],
+        fallback="idle",
+        clock=lambda: 0.0,
+    )
+    current = player.play("speaking")
+    intent = AnimationIntent(
+        clip_id="celebrate",
+        priority=Priority.NORMAL,
+        interrupt_policy=InterruptPolicy.QUEUE,
+        loop=False,
+    )
+
+    assert apply_intent(player, intent, current) is None
+    assert player.clip.name == "speaking"
+    assert player.generation == current

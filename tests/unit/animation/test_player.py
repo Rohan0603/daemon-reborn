@@ -1,6 +1,7 @@
 import pytest
 
 from daemon_reborn.animation.player import PlaybackMode, SpriteClip, SpriteFrame, SpritePlayer
+from daemon_reborn.domain.contracts import InterruptPolicy
 
 
 def clip(name: str, mode: PlaybackMode = PlaybackMode.LOOP) -> SpriteClip:
@@ -34,6 +35,22 @@ def test_once_holds_last_frame_and_hold_never_restarts() -> None:
     assert once.tick(now=1.0).key == "c"
     assert once.tick(now=10.0).key == "c"
     assert hold.tick(now=10.0).key == "c"
+
+
+def test_queued_clip_dequeues_after_one_shot_completion() -> None:
+    player = SpritePlayer([clip("once"), clip("queued")], fallback="once", clock=lambda: 0.0)
+    current = player.play("once", mode=PlaybackMode.ONCE)
+
+    assert player.play_if_current(
+        "queued", current, mode=PlaybackMode.ONCE, interrupt_policy=InterruptPolicy.QUEUE
+    ) is None
+    assert player.clip.name == "once"
+    assert player.generation == current
+
+    assert player.tick(now=0.6).key == "a"
+    assert player.clip.name == "queued"
+    assert player.clip.mode is PlaybackMode.ONCE
+    assert player.generation == current + 1
 
 
 def test_pause_resume_and_speed_preserve_phase() -> None:
