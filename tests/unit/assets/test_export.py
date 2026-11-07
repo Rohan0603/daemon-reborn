@@ -42,6 +42,10 @@ def _write_fake_exporter(tmp_path: Path, *, mode: str = "ok") -> Path:
 
             mode = {mode!r}
             args = sys.argv
+            if mode == 'native_shape':
+                source = pathlib.Path(next(arg for arg in args if arg.endswith('.pxo')))
+                if args.index('--export') > args.index(str(source)):
+                    raise SystemExit('Pixelorama options must precede the project path')
             output = pathlib.Path(args[args.index('--output') + 1])
             output.parent.mkdir(parents=True, exist_ok=True)
             if mode == 'sleep':
@@ -70,7 +74,8 @@ def _write_fake_exporter(tmp_path: Path, *, mode: str = "ok") -> Path:
                 ],
                 'export_profile': {{'export_json': 'true', 'fps': 10}},
             }}
-            (output.parent / 'atlas.json').write_text(json.dumps(snapshot), encoding='utf-8')
+            json_name = f"{{source.stem}}.json" if mode == 'native_shape' else 'atlas.json'
+            (output.parent / json_name).write_text(json.dumps(snapshot), encoding='utf-8')
             """
         ),
         encoding="utf-8",
@@ -123,6 +128,15 @@ def test_repeated_exports_have_identical_semantic_artifacts(tmp_path: Path) -> N
 
     assert (first / "manifest.json").read_bytes() == (second / "manifest.json").read_bytes()
     assert (first / "atlas.png").read_bytes() == (second / "atlas.png").read_bytes()
+
+
+def test_export_accepts_pixelorama_cli_option_order_and_json_name(tmp_path: Path) -> None:
+    output = _run(tmp_path, mode="native_shape")
+
+    assert (output / "manifest.json").is_file()
+    assert (output / "atlas.png").is_file()
+    assert (output / "atlas.json").is_file()
+    assert not (output / "placeholder.json").exists()
 
 
 def test_failed_export_preserves_last_known_good(tmp_path: Path) -> None:
