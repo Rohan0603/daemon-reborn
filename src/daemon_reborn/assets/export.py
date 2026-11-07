@@ -54,12 +54,12 @@ def export_pixelorama(
             "--headless",
             "--quit",
             "--",
-            str(source),
             "--export",
             "--spritesheet",
             "--json",
             "--output",
             str(atlas_path),
+            str(source),
         ]
         try:
             completed = subprocess.run(
@@ -76,9 +76,14 @@ def export_pixelorama(
             detail = (completed.stderr or completed.stdout).strip()
             raise AssetExportError(f"Pixelorama export failed ({completed.returncode}): {detail}")
 
-        json_path = stage / "atlas.json"
-        if not _regular_file(atlas_path) or not _regular_file(json_path):
+        json_candidates = [path for path in stage.glob("*.json") if _regular_file(path)]
+        if not _regular_file(atlas_path) or len(json_candidates) != 1:
             raise AssetExportError("export output is missing atlas PNG or JSON")
+        json_path = json_candidates[0]
+        if json_path.name != "atlas.json":
+            normalized_json_path = stage / "atlas.json"
+            json_path.replace(normalized_json_path)
+            json_path = normalized_json_path
         snapshot = _read_json(json_path)
         manifest = _canonical_manifest(
             snapshot,
