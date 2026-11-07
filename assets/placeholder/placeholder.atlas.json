@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "image": "placeholder_spritesheet.png",
+    "imageWidth": 256,
+    "imageHeight": 64,
+    "frameWidth": 64,
+    "frameHeight": 64,
+    "format": "RGBA8888",
+    "fps": 10,
+    "sourceFormat": "Pixelorama v1.2.4 project export companion; authored here"
+  },
+  "frames": [
+    {
+      "filename": "placeholder_0001.png",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "durationMs": 700,
+      "duration": 700,
+      "pixeloramaDurationMultiplier": 7,
+      "tag": "idle"
+    },
+    {
+      "filename": "placeholder_0002.png",
+      "frame": {
+        "x": 64,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "durationMs": 700,
+      "duration": 700,
+      "pixeloramaDurationMultiplier": 7,
+      "tag": "idle"
+    },
+    {
+      "filename": "placeholder_0003.png",
+      "frame": {
+        "x": 128,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "durationMs": 100,
+      "duration": 100,
+      "pixeloramaDurationMultiplier": 1,
+      "tag": "blink"
+    },
+    {
+      "filename": "placeholder_0004.png",
+      "frame": {
+        "x": 192,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "durationMs": 100,
+      "duration": 100,
+      "pixeloramaDurationMultiplier": 1,
+      "tag": "blink"
+    }
+  ],
+  "tags": [
+    {
+      "name": "idle",
+      "from": 0,
+      "to": 1,
+      "direction": "forward"
+    },
+    {
+      "name": "blink",
+      "from": 2,
+      "to": 3,
+      "direction": "forward"
+    }
+  ]
+}

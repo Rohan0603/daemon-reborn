@@ -2,12 +2,13 @@
 
 Tracking: [ORC-259](https://linear.app/agtorchestrator/issue/ORC-259/w01-run-native-pixelorama-windows-round-trip-for-orc-166) · [ORC-185](https://linear.app/agtorchestrator/issue/ORC-185/a02-implement-pinned-pixelorama-asset-export-and-provenance-pipeline)
 
-The Pixelorama JSON sidecar is an editor/export snapshot, not a Daemon runtime
-manifest. `daemon_reborn.assets.adapter.load_runtime_manifest` is a JSON-sidecar
-validation boundary: it reads a complete JSON file, validates the dimensions,
-frame durations, cel sizes, tag names and frame ranges, converts Pixelorama's
-one-based ranges to the manifest's zero-based frame IDs, and preserves those
-ranges in an immutable runtime manifest. The caller must
+`daemon_reborn.assets.adapter.load_runtime_manifest` accepts either a raw
+Pixelorama JSON sidecar or the versioned canonical `manifest.json` produced by
+the export pipeline. For a raw sidecar it validates the dimensions, frame
+durations, cel sizes, tag names and frame ranges, converting Pixelorama's
+one-based ranges to zero-based frame IDs. For a canonical manifest it validates
+the explicit millisecond durations and zero-based ranges without reinterpreting
+the values as seconds. Both paths return an immutable runtime manifest. The caller must
 stage and verify both the PNG and JSON outputs, process exit status, and file
 completeness before calling this JSON-only function; this module does not infer
 or check an atlas path.
