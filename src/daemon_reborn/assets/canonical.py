@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import struct
@@ -34,6 +35,18 @@ class CanonicalFrame:
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalAnchor:
+    x: float
+    y: float
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalMouthOverlay:
+    name: str
+    frame_id: int
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalClip:
     name: str
     frame_ids: tuple[int, ...]
@@ -54,6 +67,8 @@ class CanonicalAssetPack:
     manifest_sha256: str
     provenance_sha256: str
     checksum_sha256: str
+    feet_anchor: CanonicalAnchor | None
+    mouth_overlays: tuple[CanonicalMouthOverlay, ...]
     _atlas_bytes: bytes
 
     def to_player_clips(self) -> tuple[SpriteClip, ...]:
@@ -106,6 +121,7 @@ class CanonicalAssetCache:
         self._lock = threading.RLock()
         self._max_roots = max_roots
         self._entries: dict[Path, tuple[tuple[object, ...], CanonicalAssetPack]] = {}
+        self._pixmaps: dict[Path, tuple[tuple[object, ...], Any]] = {}
         self._roots: OrderedDict[Path, tuple[object, ...]] = OrderedDict()
 
     def load(self, asset_root: Path) -> CanonicalAssetPack:
@@ -119,10 +135,33 @@ class CanonicalAssetCache:
             self._entries[root] = (key, pack)
             self._roots[root] = key
             self._roots.move_to_end(root)
+            self._pixmaps.pop(root, None)
             while len(self._roots) > self._max_roots:
                 evicted_root, _ = self._roots.popitem(last=False)
                 self._entries.pop(evicted_root, None)
+                self._pixmaps.pop(evicted_root, None)
             return pack
+
+    def load_pixmap(self, asset_root: Path) -> Any:
+        """Return a verified pack's decoded pixmap, cached by its artifact key."""
+
+        pack, key = _load(asset_root)
+        root = _safe_root(asset_root)
+        with self._lock:
+            cached = self._pixmaps.get(root)
+            if cached is not None and cached[0] == key:
+                self._roots.move_to_end(root)
+                return cached[1]
+            pixmap = pack.build_pixmap()
+            self._entries[root] = (key, pack)
+            self._pixmaps[root] = (key, pixmap)
+            self._roots[root] = key
+            self._roots.move_to_end(root)
+            while len(self._roots) > self._max_roots:
+                evicted_root, _ = self._roots.popitem(last=False)
+                self._entries.pop(evicted_root, None)
+                self._pixmaps.pop(evicted_root, None)
+            return pixmap
 
 
 def load_canonical_assets(asset_root: Path) -> CanonicalAssetPack:
@@ -250,6 +289,7 @@ def _parse_manifest(
         raise CanonicalAssetError("atlas.png digest does not match manifest")
 
     clips = _parse_clips(manifest, len(frames))
+    feet_anchor, mouth_overlays = _parse_optional_metadata(manifest, len(frames))
     fallback = manifest.get("fallback", "idle")
     if not isinstance(fallback, str) or fallback not in {clip.name for clip in clips}:
         raise CanonicalAssetError("fallback clip must reference an existing clip")
@@ -273,6 +313,8 @@ def _parse_manifest(
         actual["manifest.json"],
         actual["provenance.json"],
         actual["SHA256SUMS.txt"],
+        feet_anchor,
+        mouth_overlays,
         atlas_bytes,
     )
 
@@ -345,26 +387,68 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
     return clips
 
 
+def _parse_optional_metadata(
+    manifest: Mapping[str, Any], frame_count: int
+) -> tuple[CanonicalAnchor | None, tuple[CanonicalMouthOverlay, ...]]:
+    feet_anchor: CanonicalAnchor | None = None
+    anchors = manifest.get("anchors")
+    if anchors is not None:
+        anchors_object = _mapping(anchors, "anchors")
+        if set(anchors_object) != {"feet"}:
+            raise CanonicalAssetError("anchors must contain only feet")
+        feet = _object(anchors_object, "feet")
+        if set(feet) != {"x", "y"}:
+            raise CanonicalAssetError("feet anchor must contain x and y")
+        values: list[float] = []
+        for key in ("x", "y"):
+            value = feet[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise CanonicalAssetError(f"feet anchor {key} must be numeric")
+            numeric = float(value)
+            if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+                raise CanonicalAssetError(f"feet anchor {key} must be finite in [0, 1]")
+            values.append(numeric)
+        feet_anchor = CanonicalAnchor(*values)
+
+    raw_overlays = manifest.get("mouth_overlays", [])
+    if not isinstance(raw_overlays, list) or len(raw_overlays) > 5:
+        raise CanonicalAssetError("mouth overlays must contain at most five poses")
+    overlays: list[CanonicalMouthOverlay] = []
+    names: set[str] = set()
+    for index, raw in enumerate(raw_overlays):
+        item = _mapping(raw, f"mouth overlay {index}")
+        if set(item) != {"name", "frame_id"}:
+            raise CanonicalAssetError("mouth overlay fields are invalid")
+        name = item["name"]
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise CanonicalAssetError("mouth overlay names must be unique and non-empty")
+        frame_id = item["frame_id"]
+        if (
+            isinstance(frame_id, bool)
+            or not isinstance(frame_id, int)
+            or not 0 <= frame_id < frame_count
+        ):
+            raise CanonicalAssetError(f"mouth overlay {name} references an invalid frame")
+        names.add(name)
+        overlays.append(CanonicalMouthOverlay(name, frame_id))
+    return feet_anchor, tuple(overlays)
+
+
 def _validate_manifest_metadata(manifest: Mapping[str, Any]) -> None:
-    if set(manifest) != {
+    keys = set(manifest)
+    base_keys = {
         "schema_version",
         "editor",
         "source",
         "canvas",
         "frames",
-        "tags",
         "fallback",
         "atlas",
-    } and set(manifest) != {
-        "schema_version",
-        "editor",
-        "source",
-        "canvas",
-        "frames",
-        "clips",
-        "fallback",
-        "atlas",
-    }:
+    }
+    if not (
+        keys - {"anchors", "mouth_overlays"} == base_keys | {"tags"}
+        or keys - {"anchors", "mouth_overlays"} == base_keys | {"clips"}
+    ):
         raise CanonicalAssetError("manifest contains an unsupported or missing schema field")
     editor = _object(manifest, "editor")
     if set(editor) != {"name", "version"} or not all(
@@ -714,8 +798,10 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
         raise CanonicalAssetError("atlas.png decoded data exceeds bounds")
     try:
         decompressor = zlib.decompressobj()
-        decoded = decompressor.decompress(bytes(idat))
-        decoded += decompressor.flush()
+        decoded = decompressor.decompress(bytes(idat), expected)
+        remaining = expected - len(decoded)
+        if remaining:
+            decoded += decompressor.flush(remaining)
     except zlib.error as exc:
         raise CanonicalAssetError("atlas.png image data is corrupt") from exc
     if not decompressor.eof or decompressor.unused_data or decompressor.unconsumed_tail:

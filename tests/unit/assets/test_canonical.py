@@ -211,6 +211,100 @@ def test_pixmap_construction_requires_qt_application(tmp_path: Path) -> None:
         pack.build_pixmap()
 
 
+def test_png_decompression_is_bounded_to_declared_scanlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_pack(tmp_path)
+    calls: list[int] = []
+    expected = 2 * (4 * 4 + 1)
+
+    class GuardedDecompressor:
+        eof = True
+        unused_data = b""
+        unconsumed_tail = b""
+
+        def decompress(self, _data: bytes, max_length: int) -> bytes:
+            calls.append(max_length)
+            return b"\x00" + bytes((20, 40, 60, 255)) * 4 + b"\x00" + bytes((20, 40, 60, 255)) * 4
+
+        def flush(self, _length: int = 0) -> bytes:
+            return b""
+
+    monkeypatch.setattr(zlib, "decompressobj", lambda: GuardedDecompressor())
+
+    load_canonical_assets(tmp_path)
+
+    assert calls == [expected]
+
+
+def test_accepts_valid_feet_anchor_and_mouth_overlay_metadata(tmp_path: Path) -> None:
+    _write_pack(tmp_path)
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    manifest["anchors"] = {"feet": {"x": 0.5, "y": 1.0}}
+    manifest["mouth_overlays"] = [
+        {"name": "neutral", "frame_id": 0},
+        {"name": "smile", "frame_id": 1},
+    ]
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    _refresh_hashes(tmp_path)
+
+    pack = load_canonical_assets(tmp_path)
+
+    assert pack.feet_anchor is not None
+    assert pack.feet_anchor.x == 0.5
+    assert pack.feet_anchor.y == 1.0
+    assert [(pose.name, pose.frame_id) for pose in pack.mouth_overlays] == [
+        ("neutral", 0),
+        ("smile", 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"anchors": {"feet": {"x": 1.1, "y": 1.0}}},
+        {"anchors": {"feet": {"x": 0.5}}},
+        {"mouth_overlays": [{"name": str(index), "frame_id": 0} for index in range(6)]},
+        {"mouth_overlays": [{"name": "bad", "frame_id": 2}]},
+    ],
+)
+def test_rejects_invalid_feet_anchor_or_mouth_overlay_metadata(
+    tmp_path: Path, metadata: dict[str, object]
+) -> None:
+    _write_pack(tmp_path)
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    manifest.update(metadata)
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    _refresh_hashes(tmp_path)
+
+    with pytest.raises(CanonicalAssetError, match="anchor|overlay|mouth"):
+        load_canonical_assets(tmp_path)
+
+
+def test_cache_reuses_decoded_pixmap_for_verified_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_pack(tmp_path)
+    cache = CanonicalAssetCache()
+    calls = 0
+    sentinel = object()
+
+    def build_pixmap(_pack: object) -> object:
+        nonlocal calls
+        calls += 1
+        return sentinel
+
+    monkeypatch.setattr(canonical.CanonicalAssetPack, "build_pixmap", build_pixmap)
+
+    assert cache.load_pixmap(tmp_path) is sentinel
+    assert cache.load_pixmap(tmp_path) is sentinel
+    assert calls == 1
+
+
 @pytest.mark.parametrize("mutation", ["crc", "trailing", "filter"])
 def test_rejects_noncanonical_png_bytes_after_digest_update(tmp_path: Path, mutation: str) -> None:
     _write_pack(tmp_path)
