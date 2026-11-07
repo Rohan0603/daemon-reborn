@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from daemon_reborn.animation.adapter import apply_intent
 from daemon_reborn.animation.director import (
     MOUTH_POSES,
     MouthOverlay,
@@ -12,6 +13,7 @@ from daemon_reborn.animation.director import (
     resolve,
     resolve_mouth_overlay,
 )
+from daemon_reborn.animation.player import PlaybackMode, SpriteClip, SpriteFrame, SpritePlayer
 from daemon_reborn.domain.behavior import BehaviorPolicy
 from daemon_reborn.domain.contracts import (
     BehaviorSnapshot,
@@ -86,12 +88,76 @@ def test_resolve_uses_deterministic_precedence(
 
 def test_resolve_falls_back_to_packaged_idle_for_empty_or_invalid_catalog() -> None:
     state = snapshot("idle", "speaking", "happy", "celebrate")
-    assert resolve(state, set(), 0, policy()).clip_id == "idle"
-    assert resolve(state, {"C:\\user\\arbitrary.png", "tool_output"}, 0, policy()).clip_id == "idle"
+    diagnostics: list[str] = []
+    assert resolve(state, set(), 0, policy(), diagnostic=diagnostics.append).clip_id == "idle"
+    assert resolve(
+        state,
+        {"C:\\user\\arbitrary.png", "tool_output"},
+        0,
+        policy(),
+        diagnostic=diagnostics.append,
+    ).clip_id == "idle"
+    assert diagnostics == ["empty_catalog", "invalid_catalog"]
 
 
 def test_resolve_falls_back_when_selected_clip_is_unavailable() -> None:
-    assert resolve(snapshot("drag", "idle", "neutral", "none"), {"idle", "chase"}, 0, policy()).clip_id == "idle"
+    diagnostics: list[str] = []
+    assert resolve(
+        snapshot("drag", "idle", "neutral", "none"),
+        {"idle", "chase"},
+        0,
+        policy(),
+        diagnostic=diagnostics.append,
+    ).clip_id == "idle"
+    assert diagnostics == ["unavailable_clip"]
+
+
+def test_resolve_reports_invalid_snapshot_without_exposing_input() -> None:
+    diagnostics: list[str] = []
+    result = resolve(
+        snapshot("user-path-secret", "speaking", "neutral", "none"),
+        {"idle", "speaking"},
+        0,
+        policy(),
+        diagnostic=diagnostics.append,
+    )
+    assert result.clip_id == "idle"
+    assert diagnostics == ["invalid_snapshot"]
+
+
+def test_apply_intent_rejects_stale_generation_before_player_mutation() -> None:
+    player = SpritePlayer(
+        [
+            SpriteClip.from_frames("idle", [SpriteFrame("idle", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("speaking", [SpriteFrame("speaking", 1.0)], PlaybackMode.LOOP),
+        ],
+        fallback="idle",
+        clock=lambda: 0.0,
+    )
+    current = player.play("speaking")
+    stale = current - 1
+    intent = resolve(snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, stale, policy())
+
+    assert apply_intent(player, intent, stale) is None
+    assert player.clip.name == "speaking"
+    assert player.generation == current
+
+
+def test_apply_intent_advances_current_generation() -> None:
+    player = SpritePlayer(
+        [
+            SpriteClip.from_frames("idle", [SpriteFrame("idle", 1.0)], PlaybackMode.LOOP),
+            SpriteClip.from_frames("speaking", [SpriteFrame("speaking", 1.0)], PlaybackMode.LOOP),
+        ],
+        fallback="idle",
+        clock=lambda: 0.0,
+    )
+    intent = resolve(snapshot("idle", "speaking", "neutral", "none"), {"idle", "speaking"}, 0, policy())
+
+    next_generation = apply_intent(player, intent, 0)
+
+    assert next_generation == 1
+    assert player.clip.name == "speaking"
 
 
 def test_resolve_is_idempotent_and_does_not_mutate_policy() -> None:

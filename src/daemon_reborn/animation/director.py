@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from daemon_reborn.domain.behavior import BehaviorPolicy
@@ -59,6 +59,7 @@ def resolve(
     available_clip_ids: Iterable[str],
     previous_generation: int,
     policy: BehaviorPolicy,
+    diagnostic: Callable[[str], None] | None = None,
 ) -> AnimationIntent:
     """Resolve one snapshot without I/O, randomness, or asset-name interpretation.
 
@@ -72,10 +73,17 @@ def resolve(
     if not isinstance(policy, BehaviorPolicy):
         raise TypeError("policy must be BehaviorPolicy")
     _validate_generation(previous_generation)
+    raw_available = tuple(available_clip_ids)
     available = frozenset(
-        clip_id for clip_id in available_clip_ids if isinstance(clip_id, str) and clip_id in _CLIP_IDS
+        clip_id for clip_id in raw_available if isinstance(clip_id, str) and clip_id in _CLIP_IDS
     )
     selected = _select_clip(snapshot)
+    if selected == IDLE_CLIP_ID and not _snapshot_is_valid(snapshot):
+        _emit_diagnostic(diagnostic, "invalid_snapshot")
+    if not available:
+        _emit_diagnostic(diagnostic, "empty_catalog" if not raw_available else "invalid_catalog")
+    elif selected not in available:
+        _emit_diagnostic(diagnostic, "unavailable_clip")
     clip_id = selected if selected in available else IDLE_CLIP_ID
     return AnimationIntent(
         clip_id=clip_id,
@@ -119,6 +127,17 @@ def _select_clip(snapshot: BehaviorSnapshot) -> str:
     if snapshot.emotion in _EMOTION_CLIPS and snapshot.emotion != "neutral":
         return snapshot.emotion
     return IDLE_CLIP_ID
+
+
+def _snapshot_is_valid(snapshot: BehaviorSnapshot) -> bool:
+    return all(
+        getattr(snapshot, name) in allowed for name, allowed in _VALID_DIMENSIONS.items()
+    )
+
+
+def _emit_diagnostic(diagnostic: Callable[[str], None] | None, code: str) -> None:
+    if diagnostic is not None:
+        diagnostic(code)
 
 
 def _validate_generation(value: int) -> None:

@@ -115,6 +115,14 @@ class SpritePlayer:
         self._started_at = started_at
         return self._generation
 
+    def play_if_current(self, clip_name: str, generation: int, *, now: float | None = None) -> int | None:
+        """Start a clip only when ``generation`` still owns the player."""
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise TypeError("generation must be a non-negative integer")
+        if generation != self._generation:
+            return None
+        return self.play(clip_name, now=now)
+
     def interrupt(self, generation: int, *, fallback: bool = True) -> int:
         """Ignore stale callers and optionally return to the fallback clip."""
         if generation != self._generation:
