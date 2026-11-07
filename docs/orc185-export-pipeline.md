@@ -25,6 +25,11 @@ The generated `SHA256SUMS.txt` covers the promoted PNG, canonical manifest and
 provenance metadata; the checksum file itself is not a self-referential entry.
 A failed export leaves an existing published directory unchanged.
 
+Pixelorama's user options must precede the project path after the `--` separator.
+The v1.2.4 CLI writes its JSON sidecar using the source project's stem (for
+example, `placeholder.json`), so the runner normalizes that single sidecar to
+`atlas.json` before validation and promotion.
+
 The automated tests use a local fake exporter to exercise process and output
 failure paths without claiming a native Pixelorama run. Native Windows
 re-export parity on this worktree, final authored character art, and reviewer
