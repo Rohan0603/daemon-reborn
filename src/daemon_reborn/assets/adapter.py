@@ -48,7 +48,71 @@ def load_runtime_manifest(path: Path) -> RuntimeManifest:
         raise ManifestError(f"invalid JSON manifest: {path}") from exc
     if not isinstance(snapshot, dict):
         raise ManifestError("JSON manifest root must be an object")
+    if "canvas" in snapshot:
+        return _adapt_canonical_manifest(snapshot)
     return _adapt_snapshot(snapshot)
+
+
+def _adapt_canonical_manifest(snapshot: Mapping[str, object]) -> RuntimeManifest:
+    """Adapt the export pipeline's versioned millisecond manifest."""
+
+    if snapshot.get("schema_version") != 1:
+        raise ManifestError("unsupported canonical manifest schema")
+    raw_canvas = snapshot.get("canvas")
+    if not isinstance(raw_canvas, dict):
+        raise ManifestError("canonical manifest canvas must be an object")
+    width = _positive_int(raw_canvas, "width")
+    height = _positive_int(raw_canvas, "height")
+    raw_frames = snapshot.get("frames")
+    raw_tags = snapshot.get("tags")
+    if not isinstance(raw_frames, list) or not raw_frames:
+        raise ManifestError("canonical manifest frames must be a non-empty array")
+    if not isinstance(raw_tags, list) or not raw_tags:
+        raise ManifestError("canonical manifest tags must be a non-empty array")
+
+    frames: list[RuntimeFrame] = []
+    for frame_id, raw_frame in enumerate(raw_frames):
+        if not isinstance(raw_frame, dict):
+            raise ManifestError(f"canonical frame {frame_id} must be an object")
+        if raw_frame.get("id") != frame_id:
+            raise ManifestError(f"canonical frame {frame_id} has an invalid id")
+        if raw_frame.get("width") != width or raw_frame.get("height") != height:
+            raise ManifestError(f"canonical frame {frame_id} has invalid dimensions")
+        duration_ms = raw_frame.get("duration_ms")
+        if isinstance(duration_ms, bool) or not isinstance(duration_ms, int):
+            raise ManifestError(f"canonical frame {frame_id} has invalid duration")
+        if not 1 <= duration_ms <= 2_147_483_647:
+            raise ManifestError(f"canonical frame {frame_id} has invalid duration")
+        frames.append(RuntimeFrame(frame_id, duration_ms))
+
+    names: set[str] = set()
+    ranges: list[RuntimeTag] = []
+    for raw_tag in raw_tags:
+        if not isinstance(raw_tag, dict):
+            raise ManifestError("canonical tag must be an object")
+        name = raw_tag.get("name")
+        begin = raw_tag.get("from_frame")
+        end = raw_tag.get("to_frame")
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise ManifestError("canonical tag names must be unique and non-empty")
+        if (
+            isinstance(begin, bool)
+            or not isinstance(begin, int)
+            or isinstance(end, bool)
+            or not isinstance(end, int)
+            or begin < 0
+            or end < begin
+            or end >= len(frames)
+        ):
+            raise ManifestError(f"canonical tag {name} has invalid range")
+        names.add(name)
+        ranges.append(RuntimeTag(name, begin, end))
+
+    covered = {frame for tag in ranges for frame in range(tag.from_frame, tag.to_frame + 1)}
+    missing = sorted(set(range(len(frames))) - covered)
+    if missing:
+        raise ManifestError(f"canonical frames not covered by tags: {missing}")
+    return RuntimeManifest((width, height), tuple(frames), tuple(ranges))
 
 
 def _adapt_snapshot(snapshot: Mapping[str, object]) -> RuntimeManifest:

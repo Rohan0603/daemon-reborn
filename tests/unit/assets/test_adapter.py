@@ -118,3 +118,28 @@ def test_adapts_captured_fixture_with_zero_based_tag_ranges() -> None:
         ("idle", 0, 1),
         ("blink", 2, 3),
     ]
+
+
+def test_adapts_canonical_pipeline_manifest_without_reinterpreting_milliseconds(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "canvas": {"width": 64, "height": 64, "fps": 10},
+                "frames": [
+                    {"id": 0, "duration_ms": 700, "width": 64, "height": 64},
+                    {"id": 1, "duration_ms": 100, "width": 64, "height": 64},
+                ],
+                "tags": [{"name": "idle", "from_frame": 0, "to_frame": 1}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = load_runtime_manifest(path)
+
+    assert [(frame.id, frame.duration_ms) for frame in manifest.frames] == [(0, 700), (1, 100)]
+    assert [(tag.name, tag.from_frame, tag.to_frame) for tag in manifest.tags] == [("idle", 0, 1)]

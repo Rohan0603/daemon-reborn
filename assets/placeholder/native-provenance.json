@@ -1,0 +1,16 @@
+{
+  "editor": {
+    "name": "Pixelorama",
+    "version": "v1.2.4-stable"
+  },
+  "files": {
+    "atlas.png": "8959b23482616dd1cd6c15cfc6d3567da4c6cccb20d723c111bb0469e04c2f8c",
+    "manifest.json": "0012a93f00041c8d3c66df6671b232fcfba35a1d863ce7c927153490df2f59e1"
+  },
+  "schema_version": 1,
+  "source": {
+    "filename": "placeholder.pxo",
+    "license": "CC0-1.0",
+    "sha256": "7b625e9e7962ecabffb32da19afacca7ba10845016383a7535e6e0a4c94ef20e"
+  }
+}
