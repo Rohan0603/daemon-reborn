@@ -189,6 +189,23 @@ def test_large_playback_is_chunked_without_dropping_and_reaches_completion() -> 
     assert adapter.state is SinkState.IDLE
 
 
+def test_adapter_propagates_delayed_processed_clock_completion_during_pump() -> None:
+    device = AudioDeviceInfo("mock", "Mock output", (FIXTURE_FORMAT,))
+    adapter = PcmAudioSinkAdapter(lambda: (device,))
+    processed_usecs = iter((0, 8 * 1_000_000 // FIXTURE_FORMAT.bytes_per_second))
+    adapter.set_sink_writer(lambda data: len(data))
+    result = adapter.play(b"abcdefgh")
+    adapter._processed_usecs_provider = lambda: next(processed_usecs)
+
+    assert result.started
+    assert adapter.pump() == 8
+    first_pump_state = adapter.state
+    assert first_pump_state is SinkState.PLAYING
+
+    assert adapter.pump() == 0
+    assert adapter.state is SinkState.IDLE
+
+
 def test_adapter_fails_safe_without_output_device() -> None:
     adapter = PcmAudioSinkAdapter(lambda: ())
 

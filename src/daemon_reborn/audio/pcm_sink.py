@@ -446,7 +446,10 @@ class PcmAudioSinkAdapter(QObject):
             if self._session.source_remaining:
                 return 0
             self._update_processed_clock()
-            if self._session.state is SinkState.PLAYING:
+            session_state: SinkState = self._session.state
+            if session_state is SinkState.IDLE:
+                self.state = SinkState.IDLE
+            elif session_state is SinkState.PLAYING:
                 self.state = SinkState.UNDERRUN
             return 0
         written = max(0, min(len(payload), int(self._sink_writer(payload))))
@@ -464,8 +467,8 @@ class PcmAudioSinkAdapter(QObject):
         if written < len(payload):
             self.state = SinkState.PLAYING
         else:
-            session_state: SinkState = self._session.state
-            if session_state is SinkState.IDLE:
+            final_session_state: SinkState = self._session.state
+            if final_session_state is SinkState.IDLE:
                 self.state = SinkState.IDLE
         return written
 
