@@ -339,6 +339,25 @@ def test_packaged_idle_catalog_is_verified_and_is_the_default_fallback(tmp_path:
     assert load_canonical_assets_with_fallback(tmp_path / "missing") == packaged
 
 
+def test_packaged_idle_catalog_bytes_are_lf_stable_on_windows() -> None:
+    root = Path(__file__).parents[3] / "src" / "daemon_reborn" / "assets" / "packaged_idle"
+    names = ("manifest.json", "provenance.json", "SHA256SUMS.txt")
+
+    for name in names:
+        data = (root / name).read_bytes()
+        assert b"\r" not in data, f"{name} must not be EOL-converted on Windows"
+
+    entries = {
+        name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+        for name in ("atlas.png", "manifest.json", "provenance.json")
+    }
+    expected = {
+        line.split("  ", 1)[1]: line.split("  ", 1)[0]
+        for line in (root / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
+    }
+    assert expected == entries
+
+
 @pytest.mark.parametrize(
     ("candidate", "root", "allowed"),
     [
