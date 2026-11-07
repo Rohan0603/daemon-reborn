@@ -41,9 +41,12 @@ def test_queued_clip_dequeues_after_one_shot_completion() -> None:
     player = SpritePlayer([clip("once"), clip("queued")], fallback="once", clock=lambda: 0.0)
     current = player.play("once", mode=PlaybackMode.ONCE)
 
-    assert player.play_if_current(
-        "queued", current, mode=PlaybackMode.ONCE, interrupt_policy=InterruptPolicy.QUEUE
-    ) is None
+    assert (
+        player.play_if_current(
+            "queued", current, mode=PlaybackMode.ONCE, interrupt_policy=InterruptPolicy.QUEUE
+        )
+        is None
+    )
     assert player.clip.name == "once"
     assert player.generation == current
 
