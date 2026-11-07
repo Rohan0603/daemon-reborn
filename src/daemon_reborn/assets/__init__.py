@@ -14,6 +14,7 @@ from daemon_reborn.assets.canonical import (
     CanonicalFrame,
     load_canonical_assets,
     load_canonical_assets_with_fallback,
+    load_packaged_idle_assets,
 )
 from daemon_reborn.assets.export import AssetExportError, export_pixelorama
 
@@ -30,5 +31,6 @@ __all__ = [
     "export_pixelorama",
     "load_canonical_assets",
     "load_canonical_assets_with_fallback",
+    "load_packaged_idle_assets",
     "load_runtime_manifest",
 ]

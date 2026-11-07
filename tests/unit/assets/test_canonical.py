@@ -11,11 +11,13 @@ from pathlib import Path
 
 import pytest
 
+from daemon_reborn.assets import canonical
 from daemon_reborn.assets.canonical import (
     CanonicalAssetCache,
     CanonicalAssetError,
     load_canonical_assets,
     load_canonical_assets_with_fallback,
+    load_packaged_idle_assets,
 )
 
 
@@ -80,7 +82,12 @@ def _write_pack(
         ],
         "tags": tags or [{"name": "idle", "from_frame": 0, "to_frame": 1}],
         "fallback": "idle",
-        "atlas": {"filename": "atlas.png", "width": 4, "height": 2, "sha256": hashlib.sha256(atlas).hexdigest()},
+        "atlas": {
+            "filename": "atlas.png",
+            "width": 4,
+            "height": 2,
+            "sha256": hashlib.sha256(atlas).hexdigest(),
+        },
     }
     manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
     (root / "manifest.json").write_bytes(manifest_bytes)
@@ -136,9 +143,9 @@ def test_loads_immutable_canonical_metadata_and_player_clips(tmp_path: Path) -> 
     assert pack.schema_version == 1
     assert pack.canvas == (2, 2)
     assert pack.atlas_sha256 == hashlib.sha256((tmp_path / "atlas.png").read_bytes()).hexdigest()
-    assert [(clip.name, [frame.key for frame in clip.frames]) for clip in pack.to_player_clips()] == [
-        ("idle", ["frame-0", "frame-1"])
-    ]
+    assert [
+        (clip.name, [frame.key for frame in clip.frames]) for clip in pack.to_player_clips()
+    ] == [("idle", ["frame-0", "frame-1"])]
     with pytest.raises(FrozenInstanceError):
         pack.schema_version = 2  # type: ignore[misc]
 
@@ -147,10 +154,19 @@ def test_loads_immutable_canonical_metadata_and_player_clips(tmp_path: Path) -> 
     ("mutate", "message"),
     [
         (lambda root: (root / "atlas.png").write_bytes(b"tampered"), "atlas.png digest"),
-        (lambda root: (root / "manifest.json").write_text('{"schema_version": 99}', encoding="utf-8"), "manifest.json digest"),
-        (lambda root: (root / "manifest.json").write_text(
-            json.dumps({"schema_version": 1, "atlas": {"filename": "../atlas.png"}}), encoding="utf-8"
-        ), "manifest.json digest"),
+        (
+            lambda root: (root / "manifest.json").write_text(
+                '{"schema_version": 99}', encoding="utf-8"
+            ),
+            "manifest.json digest",
+        ),
+        (
+            lambda root: (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "atlas": {"filename": "../atlas.png"}}),
+                encoding="utf-8",
+            ),
+            "manifest.json digest",
+        ),
     ],
 )
 def test_rejects_tampered_or_unsafe_artifact(
@@ -213,6 +229,17 @@ def test_rejects_noncanonical_png_bytes_after_digest_update(tmp_path: Path, muta
         load_canonical_assets(tmp_path)
 
 
+def test_rejects_trailing_compressed_idat_data_after_digest_update(tmp_path: Path) -> None:
+    _write_pack(tmp_path)
+    data = (tmp_path / "atlas.png").read_bytes()
+    rows = b"".join(b"\x00" + bytes((20, 40, 60, 255)) * 4 for _ in range(2))
+    (tmp_path / "atlas.png").write_bytes(_replace_idat(data, zlib.compress(rows) + b"trailing"))
+    _refresh_hashes(tmp_path)
+
+    with pytest.raises(CanonicalAssetError, match="compressed stream|trailing"):
+        load_canonical_assets(tmp_path)
+
+
 def test_rejects_frame_reuse_across_clips(tmp_path: Path) -> None:
     _write_pack(
         tmp_path,
@@ -265,7 +292,9 @@ def test_cache_evicts_old_roots_with_lru_bound(tmp_path: Path) -> None:
     assert len(cache._roots) == 2
 
 
-def test_loader_reads_validated_files_without_path_read_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loader_reads_validated_files_without_path_read_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_pack(tmp_path)
 
     def fail(*_args: object, **_kwargs: object) -> bytes:
@@ -299,3 +328,26 @@ def test_packaged_idle_fallback_is_an_explicit_boundary(tmp_path: Path) -> None:
     pack = load_canonical_assets_with_fallback(optional, packaged)
 
     assert pack.frames[0].duration_ms == 777
+
+
+def test_packaged_idle_catalog_is_verified_and_is_the_default_fallback(tmp_path: Path) -> None:
+    packaged = load_packaged_idle_assets()
+
+    assert packaged.fallback == "idle"
+    assert packaged.clips[0].name == "idle"
+    assert packaged.atlas_sha256 == hashlib.sha256(packaged._atlas_bytes).hexdigest()
+    assert load_canonical_assets_with_fallback(tmp_path / "missing") == packaged
+
+
+@pytest.mark.parametrize(
+    ("candidate", "root", "allowed"),
+    [
+        (r"\\?\C:\assets\packaged\atlas.png", r"C:\assets\packaged", True),
+        (r"\\?\C:\assets\packaged-escape\atlas.png", r"C:\assets\packaged", False),
+        (r"\\?\C:\other\atlas.png", r"C:\assets\packaged", False),
+    ],
+)
+def test_windows_handle_final_path_guard_rejects_ancestor_reparse_escape(
+    candidate: str, root: str, allowed: bool
+) -> None:
+    assert canonical._is_descendant_path(candidate, root) is allowed

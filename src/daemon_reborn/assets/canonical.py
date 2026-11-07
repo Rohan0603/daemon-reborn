@@ -12,6 +12,7 @@ import zlib
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +84,9 @@ class CanonicalAssetPack:
 
         application = QApplication.instance()
         if application is None:
-            raise CanonicalAssetError("QApplication is required for GUI-thread QPixmap construction")
+            raise CanonicalAssetError(
+                "QApplication is required for GUI-thread QPixmap construction"
+            )
         if QThread.currentThread() != application.thread():
             raise CanonicalAssetError("QPixmap construction is restricted to the GUI thread")
         image = QImage.fromData(self._atlas_bytes, b"PNG")
@@ -129,14 +132,29 @@ def load_canonical_assets(asset_root: Path) -> CanonicalAssetPack:
 
 
 def load_canonical_assets_with_fallback(
-    asset_root: Path, packaged_idle_root: Path
+    asset_root: Path, packaged_idle_root: Path | None = None
 ) -> CanonicalAssetPack:
     """Load optional assets, falling back to a trusted packaged idle pack."""
 
     try:
         return load_canonical_assets(asset_root)
     except CanonicalAssetError:
-        return load_canonical_assets(packaged_idle_root)
+        return (
+            load_packaged_idle_assets()
+            if packaged_idle_root is None
+            else load_canonical_assets(packaged_idle_root)
+        )
+
+
+def load_packaged_idle_assets() -> CanonicalAssetPack:
+    """Load the verified, package-owned idle catalog without caller paths."""
+
+    resource = resources.files("daemon_reborn.assets").joinpath("packaged_idle")
+    try:
+        with resources.as_file(resource) as root:
+            return load_canonical_assets(root)
+    except (CanonicalAssetError, OSError) as exc:
+        raise CanonicalAssetError("packaged idle catalog is missing or invalid") from exc
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -172,11 +190,19 @@ def _load(asset_root: Path) -> tuple[CanonicalAssetPack, tuple[object, ...]]:
     _validate_manifest_metadata(manifest)
     _validate_provenance(provenance, actual, manifest)
     pack = _parse_manifest(manifest, file_bytes["atlas.png"], actual)
-    key = (pack.schema_version, pack.manifest_sha256, pack.atlas_sha256, pack.provenance_sha256, actual["SHA256SUMS.txt"])
+    key = (
+        pack.schema_version,
+        pack.manifest_sha256,
+        pack.atlas_sha256,
+        pack.provenance_sha256,
+        actual["SHA256SUMS.txt"],
+    )
     return pack, key
 
 
-def _parse_manifest(manifest: Mapping[str, Any], atlas_bytes: bytes, actual: Mapping[str, str]) -> CanonicalAssetPack:
+def _parse_manifest(
+    manifest: Mapping[str, Any], atlas_bytes: bytes, actual: Mapping[str, str]
+) -> CanonicalAssetPack:
     if manifest.get("schema_version") != 1:
         raise CanonicalAssetError("manifest schema_version must be 1")
     canvas = _object(manifest, "canvas")
@@ -263,7 +289,12 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
             raw_clips.append(
                 {
                     "name": tag.get("name"),
-                    "frame_ids": list(range(_bounded_int(tag, "from_frame", 0, frame_count - 1), _bounded_int(tag, "to_frame", 0, frame_count - 1) + 1)),
+                    "frame_ids": list(
+                        range(
+                            _bounded_int(tag, "from_frame", 0, frame_count - 1),
+                            _bounded_int(tag, "to_frame", 0, frame_count - 1) + 1,
+                        )
+                    ),
                 }
             )
     if not isinstance(raw_clips, list) or not raw_clips or len(raw_clips) > _MAX_CLIPS:
@@ -281,7 +312,11 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
             raise CanonicalAssetError(f"clip {name} has invalid frame_ids")
         frame_ids: list[int] = []
         for frame_id in ids:
-            if isinstance(frame_id, bool) or not isinstance(frame_id, int) or not 0 <= frame_id < frame_count:
+            if (
+                isinstance(frame_id, bool)
+                or not isinstance(frame_id, int)
+                or not 0 <= frame_id < frame_count
+            ):
                 raise CanonicalAssetError(f"clip {name} references an out-of-range frame")
             if frame_id in frame_ids:
                 raise CanonicalAssetError(f"clip {name} contains duplicate frame ids")
@@ -296,7 +331,11 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
         if not isinstance(loop, bool):
             raise CanonicalAssetError(f"clip {name} has invalid loop flag")
         priority = item.get("priority", 0)
-        if isinstance(priority, bool) or not isinstance(priority, int) or not -1000 <= priority <= 1000:
+        if (
+            isinstance(priority, bool)
+            or not isinstance(priority, int)
+            or not -1000 <= priority <= 1000
+        ):
             raise CanonicalAssetError(f"clip {name} has invalid priority")
         fallback = item.get("fallback")
         if fallback is not None and (not isinstance(fallback, str) or not fallback.strip()):
@@ -308,9 +347,23 @@ def _parse_clips(manifest: Mapping[str, Any], frame_count: int) -> list[Canonica
 
 def _validate_manifest_metadata(manifest: Mapping[str, Any]) -> None:
     if set(manifest) != {
-        "schema_version", "editor", "source", "canvas", "frames", "tags", "fallback", "atlas"
+        "schema_version",
+        "editor",
+        "source",
+        "canvas",
+        "frames",
+        "tags",
+        "fallback",
+        "atlas",
     } and set(manifest) != {
-        "schema_version", "editor", "source", "canvas", "frames", "clips", "fallback", "atlas"
+        "schema_version",
+        "editor",
+        "source",
+        "canvas",
+        "frames",
+        "clips",
+        "fallback",
+        "atlas",
     }:
         raise CanonicalAssetError("manifest contains an unsupported or missing schema field")
     editor = _object(manifest, "editor")
@@ -370,7 +423,12 @@ def _safe_file(root: Path, name: str) -> Path:
         resolved.relative_to(root)
     except (OSError, ValueError) as exc:
         raise CanonicalAssetError(f"asset path is outside root or missing: {name}") from exc
-    if candidate.name != name or candidate.is_symlink() or _is_reparse(candidate) or not candidate.is_file():
+    if (
+        candidate.name != name
+        or candidate.is_symlink()
+        or _is_reparse(candidate)
+        or not candidate.is_file()
+    ):
         raise CanonicalAssetError(f"asset path is not a regular in-root file: {name}")
     current = root
     for component in candidate.parts[len(root.parts) : -1]:
@@ -382,7 +440,9 @@ def _safe_file(root: Path, name: str) -> Path:
 
 def _is_reparse(path: Path) -> bool:
     checker = getattr(path, "is_junction", None)
-    return bool(checker and checker()) or bool(os.name == "nt" and getattr(path.stat(), "st_file_attributes", 0) & 0x400)
+    return bool(checker and checker()) or bool(
+        os.name == "nt" and getattr(path.stat(), "st_file_attributes", 0) & 0x400
+    )
 
 
 def _read_bounded(path: Path, name: str) -> bytes:
@@ -396,11 +456,23 @@ def _read_bounded(path: Path, name: str) -> bytes:
 
 
 def _open_root(root: Path) -> int:
-    # CPython on Windows exposes neither openat/dir_fd nor O_DIRECTORY. The
-    # per-file reparse-point check plus an opened handle is the strongest
-    # stdlib-only boundary available there; POSIX uses a pinned directory fd.
     if os.name == "nt":
-        return -1
+        # Windows CPython has no openat/dir_fd. Pin the root directory handle,
+        # then compare every opened file's final handle path to that pinned
+        # handle before reading; an ancestor junction redirect therefore fails
+        # closed even though the pathname APIs themselves are not relative.
+        fd = _open_windows_handle(
+            root,
+            flags=0x00200000 | 0x02000000,  # OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+        )
+        try:
+            actual = _final_path_from_fd(fd)
+            if not _same_path(actual, root):
+                raise CanonicalAssetError("asset root changed through an ancestor reparse point")
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         return os.open(root, flags)
@@ -446,9 +518,19 @@ def _open_asset_fd(root: Path, root_fd: int, name: str) -> int:
     if os.name != "nt":
         return os.open(name, flags, dir_fd=root_fd)
 
-    # Windows has no O_NOFOLLOW in CPython. CreateFileW's
-    # FILE_FLAG_OPEN_REPARSE_POINT opens the named object itself, allowing the
-    # handle's file attributes to reject links/reparse points before reading.
+    fd = _open_windows_handle(root / name, flags=0x00200000 | 0x08000000)
+    try:
+        root_final = _final_path_from_fd(root_fd)
+        asset_final = _final_path_from_fd(fd)
+        if not _is_descendant_path(asset_final, root_final):
+            raise CanonicalAssetError(f"asset path crossed an ancestor reparse point: {name}")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _open_windows_handle(path: Path, *, flags: int) -> int:
     import ctypes
     import msvcrt
 
@@ -466,22 +548,57 @@ def _open_asset_fd(root: Path, root_fd: int, name: str) -> int:
     create_file.restype = ctypes.c_void_p
     invalid_handle = ctypes.c_void_p(-1).value
     handle = create_file(
-        str(root / name),
-        0x80000000,  # GENERIC_READ
-        0x00000007,  # share read/write/delete
+        str(path),
+        0x80000000,
+        0x00000007,
         None,
-        3,  # OPEN_EXISTING
-        0x00200000 | 0x08000000,  # OPEN_REPARSE_POINT | SEQUENTIAL_SCAN
+        3,
+        flags,
         None,
     )
     if handle in (None, invalid_handle):
         error = ctypes.get_last_error()
-        raise OSError(error, f"CreateFileW failed for {name}")
+        raise OSError(error, f"CreateFileW failed for {path.name}")
     try:
-        return msvcrt.open_osfhandle(handle, flags)
+        return msvcrt.open_osfhandle(handle, os.O_RDONLY | getattr(os, "O_BINARY", 0))
     except OSError:
         kernel32.CloseHandle(handle)
         raise
+
+
+def _final_path_from_fd(fd: int) -> str:
+    import ctypes
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32]
+    get_final_path.restype = ctypes.c_uint32
+    size = 512
+    while size <= 32768:
+        buffer = ctypes.create_unicode_buffer(size)
+        result = get_final_path(msvcrt.get_osfhandle(fd), buffer, size, 0)
+        if result == 0:
+            error = ctypes.get_last_error()
+            raise OSError(error, "GetFinalPathNameByHandleW failed")
+        if result < size:
+            return buffer.value
+        size *= 2
+    raise OSError("asset final path is too long")
+
+
+def _normal_path(path: str | Path) -> str:
+    return str(path).replace("/", "\\").rstrip("\\").casefold()
+
+
+def _same_path(left: str | Path, right: str | Path) -> bool:
+    return _normal_path(left).removeprefix("\\\\?\\") == _normal_path(right).removeprefix("\\\\?\\")
+
+
+def _is_descendant_path(candidate: str, root: str) -> bool:
+    candidate_normal = _normal_path(candidate).removeprefix("\\\\?\\")
+    root_normal = _normal_path(root).removeprefix("\\\\?\\")
+    return candidate_normal.startswith(root_normal + "\\")
 
 
 def _json_object(data: bytes, name: str) -> Mapping[str, Any]:
@@ -504,7 +621,9 @@ def _parse_sums(data: bytes) -> dict[str, str]:
             raise CanonicalAssetError("SHA256SUMS.txt contains an invalid or duplicate entry")
         result[match[2]] = match[1]
     if set(result) != {"manifest.json", "atlas.png", "provenance.json"}:
-        raise CanonicalAssetError("SHA256SUMS.txt must cover manifest.json, atlas.png, and provenance.json")
+        raise CanonicalAssetError(
+            "SHA256SUMS.txt must cover manifest.json, atlas.png, and provenance.json"
+        )
     return result
 
 
@@ -530,7 +649,12 @@ def _bounded_int(parent: Mapping[str, Any], key: str, minimum: int, maximum: int
 
 
 def _overlaps(left: CanonicalFrame, right: CanonicalFrame) -> bool:
-    return left.x < right.x + right.width and right.x < left.x + left.width and left.y < right.y + right.height and right.y < left.y + left.height
+    return (
+        left.x < right.x + right.width
+        and right.x < left.x + left.width
+        and left.y < right.y + right.height
+        and right.y < left.y + left.height
+    )
 
 
 def _inspect_png(data: bytes) -> tuple[int, int]:
@@ -551,15 +675,25 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
         payload = data[offset + 8 : payload_end]
         actual_crc = struct.unpack(">I", data[payload_end : payload_end + 4])[0]
         if zlib.crc32(kind + payload) & 0xFFFFFFFF != actual_crc:
-            raise CanonicalAssetError(f"atlas.png chunk {kind.decode('ascii', 'replace')} has invalid CRC")
+            raise CanonicalAssetError(
+                f"atlas.png chunk {kind.decode('ascii', 'replace')} has invalid CRC"
+            )
         if kind == b"IHDR":
             if offset != 8 or width is not None:
                 raise CanonicalAssetError("atlas.png has an invalid IHDR position")
             if len(payload) != 13:
                 raise CanonicalAssetError("atlas.png has an invalid IHDR")
-            width, height, depth, color, compression, filtering, interlace = struct.unpack(">IIBBBBB", payload)
-            if not 1 <= width <= _MAX_CANVAS * _MAX_FRAMES or not 1 <= height <= _MAX_CANVAS or (depth, color, compression, filtering, interlace) != (8, 6, 0, 0, 0):
-                raise CanonicalAssetError("atlas.png must be non-interlaced 8-bit RGBA within bounds")
+            width, height, depth, color, compression, filtering, interlace = struct.unpack(
+                ">IIBBBBB", payload
+            )
+            if (
+                not 1 <= width <= _MAX_CANVAS * _MAX_FRAMES
+                or not 1 <= height <= _MAX_CANVAS
+                or (depth, color, compression, filtering, interlace) != (8, 6, 0, 0, 0)
+            ):
+                raise CanonicalAssetError(
+                    "atlas.png must be non-interlaced 8-bit RGBA within bounds"
+                )
         elif kind == b"IDAT":
             idat.extend(payload)
             if len(idat) > _MAX_PNG_BYTES:
@@ -579,9 +713,13 @@ def _inspect_png(data: bytes) -> tuple[int, int]:
     if expected > _MAX_PNG_BYTES:
         raise CanonicalAssetError("atlas.png decoded data exceeds bounds")
     try:
-        decoded = zlib.decompress(bytes(idat))
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(bytes(idat))
+        decoded += decompressor.flush()
     except zlib.error as exc:
         raise CanonicalAssetError("atlas.png image data is corrupt") from exc
+    if not decompressor.eof or decompressor.unused_data or decompressor.unconsumed_tail:
+        raise CanonicalAssetError("atlas.png compressed stream is incomplete or has trailing data")
     if len(decoded) != expected:
         raise CanonicalAssetError("atlas.png scanline data is truncated")
     row_size = width * 4
