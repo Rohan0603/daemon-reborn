@@ -1,4 +1,5 @@
 """Exercise the real Gitleaks CLI against a synthetic, non-provider secret."""
+
 from __future__ import annotations
 
 import shutil
@@ -10,8 +11,25 @@ from pathlib import Path
 def fixture_text() -> str:
     prefix = "".join(
         chr(code)
-        for code in (115, 121, 110, 116, 104, 101, 116, 105, 99,
-                     45, 115, 101, 99, 114, 101, 116, 45)
+        for code in (
+            115,
+            121,
+            110,
+            116,
+            104,
+            101,
+            116,
+            105,
+            99,
+            45,
+            115,
+            101,
+            99,
+            114,
+            101,
+            116,
+            45,
+        )
     )
     return prefix + "".join(format(index % 16, "x") for index in range(32))
 
@@ -33,8 +51,10 @@ def main() -> int:
             result = run("git", *args, cwd=repo)
             if result.returncode:
                 raise SystemExit(result.stderr)
-        for args in (("config", "user.name", "Secret Scan Test"),
-                     ("config", "user.email", "secret-scan@example.invalid")):
+        for args in (
+            ("config", "user.name", "Secret Scan Test"),
+            ("config", "user.email", "secret-scan@example.invalid"),
+        ):
             result = run("git", *args, cwd=repo)
             if result.returncode:
                 raise SystemExit(result.stderr)

@@ -3,15 +3,15 @@
 A fake Gitleaks CLI exercises hook control flow, not real secret detection.
 The GitHub Actions Gitleaks step performs the actual detection check.
 """
+
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".githooks" / "pre-push"
@@ -43,8 +43,12 @@ class PrePushHookTests(unittest.TestCase):
         (self.repo / "sample.txt").write_text("initial\n", encoding="utf-8")
         self._git("add", "sample.txt")
         self._git("commit", "-m", "initial")
-        subprocess.run(["git", "init", "--bare", str(self.bare)],
-                       check=True, capture_output=True, text=True)
+        subprocess.run(
+            ["git", "init", "--bare", str(self.bare)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         self._git("remote", "add", "origin", str(self.bare))
         self._git("push", "--no-verify", "-u", "origin", "main")
         self.old_remote = self._bare_rev("refs/heads/main")
@@ -77,22 +81,30 @@ class PrePushHookTests(unittest.TestCase):
 
     def _git(self, *args: str, env: dict | None = None, check: bool = True):
         return subprocess.run(
-            ["git", *args], cwd=self.repo, env=env,
-            check=check, capture_output=True, text=True,
+            ["git", *args],
+            cwd=self.repo,
+            env=env,
+            check=check,
+            capture_output=True,
+            text=True,
         )
 
     def _bare_rev(self, ref: str) -> str:
         return subprocess.run(
             ["git", "--git-dir", str(self.bare), "rev-parse", ref],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
     def test_clean_push_scans_new_commits(self) -> None:
         result = self._git("push", "origin", "main", env=self.env)
         self.assertIn("Scanning commit", result.stderr)
         self.assertIn("--log-opts=", self.log_file.read_text(encoding="utf-8"))
-        self.assertEqual(self._bare_rev("refs/heads/main"),
-                         self._git("rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(
+            self._bare_rev("refs/heads/main"),
+            self._git("rev-parse", "HEAD").stdout.strip(),
+        )
 
     def test_gitleaks_finding_blocks_remote_push(self) -> None:
         self.env["GITLEAKS_TEST_EXIT"] = "1"
@@ -108,8 +120,10 @@ class PrePushHookTests(unittest.TestCase):
         self.assertIn("--log-opts=", args)
         self.assertNotIn(" --not ", args)
         self.assertIn("^..", args)
-        self.assertEqual(self._bare_rev("refs/heads/feature"),
-                         self._git("rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(
+            self._bare_rev("refs/heads/feature"),
+            self._git("rev-parse", "HEAD").stdout.strip(),
+        )
 
     def test_missing_gitleaks_blocks_push(self) -> None:
         env = self.env.copy()
@@ -127,9 +141,16 @@ class PrePushHookTests(unittest.TestCase):
     def test_unavailable_remote_base_blocks_push(self) -> None:
         result = subprocess.run(
             [SHELL, str(HOOK), "origin", str(self.bare)],
-            cwd=self.repo, env=self.env, text=True, capture_output=True,
-            input="refs/heads/main " + self._git("rev-parse", "HEAD").stdout.strip() +
-                  " refs/heads/main " + ("1" * 40) + "\n",
+            check=False,
+            cwd=self.repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            input="refs/heads/main "
+            + self._git("rev-parse", "HEAD").stdout.strip()
+            + " refs/heads/main "
+            + ("1" * 40)
+            + "\n",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cannot inspect remote base", result.stderr)
@@ -144,7 +165,7 @@ class PrePushHookTests(unittest.TestCase):
     def test_commit_introduced_then_deleted_is_still_scanned(self) -> None:
         (self.repo / "temporary.txt").write_text("synthetic-secret\n", encoding="utf-8")
         self._git("add", "temporary.txt")
-        introduced = self._git("commit", "-m", "add synthetic secret").stdout
+        self._git("commit", "-m", "add synthetic secret")
         self._git("rm", "temporary.txt")
         self._git("commit", "-m", "remove synthetic secret")
         self.env["GITLEAKS_TEST_EXIT"] = "1"
@@ -156,9 +177,16 @@ class PrePushHookTests(unittest.TestCase):
     def test_ref_deletion_does_not_invoke_gitleaks(self) -> None:
         result = subprocess.run(
             [SHELL, str(HOOK), "origin", str(self.bare)],
-            cwd=self.repo, env=self.env, text=True, capture_output=True,
-            input="refs/heads/deleted " + ("0" * 40) +
-                  " refs/heads/deleted " + self.old_remote + "\n",
+            check=False,
+            cwd=self.repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            input="refs/heads/deleted "
+            + ("0" * 40)
+            + " refs/heads/deleted "
+            + self.old_remote
+            + "\n",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.log_file.exists())
