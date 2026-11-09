@@ -36,7 +36,11 @@ def fixture_text() -> str:
 
 def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        list(args), cwd=cwd, check=False, capture_output=True, text=True
+        list(args),
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
     )
 
 
