@@ -160,7 +160,6 @@ def list_project_items(project_id: str, token: str) -> tuple[str, list[dict]]:
 def audit(repo: str, issues: list[dict], project_items: list[dict]) -> dict:
     errors = []
     pending_bootstrap = []
-    issues_by_id = {i["node_id"]: i for i in issues}
     project_index: dict[str, list[str | None]] = {}
     for item in project_items:
         content = item.get("content")
@@ -257,7 +256,7 @@ def main() -> int:
             with open(args.output, "w", encoding="utf-8") as file:
                 file.write(rendered + "\n")
         return 1 if report["violation_count"] else 0
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - fail-closed CLI boundary reports all incomplete audits
         print(f"AUDIT INCOMPLETE: {exc}", file=sys.stderr)
         return 2
 
