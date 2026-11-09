@@ -64,9 +64,10 @@ class PrePushHookTests(unittest.TestCase):
         self.log_file = home / "gitleaks.log"
         fake = self.bin_dir / "gitleaks"
         fake.write_text(
-            "#!/bin/sh\n"
-            'printf "%s\\n" "$*" >> "$GITLEAKS_TEST_LOG"\n'
-            'exit "$GITLEAKS_TEST_EXIT"\n',
+            """#!/bin/sh
+printf "%s\\n" "$*" >> "$GITLEAKS_TEST_LOG"
+exit "$GITLEAKS_TEST_EXIT"
+""",
             encoding="utf-8",
         )
         fake.chmod(0o755)
