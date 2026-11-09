@@ -1,0 +1,52 @@
+#!/usr/bin/env sh
+# Fail closed: scan Git commits before they leave this machine.
+# Install once per clone: git config --local core.hooksPath .githooks
+set -eu
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "Secret scan BLOCKED: install Gitleaks (https://github.com/gitleaks/gitleaks) before pushing." >&2
+  exit 1
+fi
+
+remote_name="${1:-origin}"
+
+while read -r local_ref local_oid remote_ref remote_oid; do
+  [ -n "$local_ref" ] || continue
+
+  # A ref deletion does not introduce new commits.
+  case "$local_oid" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  case "$remote_oid" in
+    *[!0]*)
+      if ! git cat-file -e "${remote_oid}^{commit}" 2>/dev/null; then
+        echo "Secret scan BLOCKED: cannot inspect remote base $remote_ref. Fetch $remote_name before retrying." >&2
+        exit 1
+      fi
+      if ! commits="$(git rev-list --reverse "${remote_oid}..${local_oid}")"; then
+        echo "Secret scan BLOCKED: cannot calculate commits for $local_ref." >&2
+        exit 1
+      fi
+      ;;
+    *)
+      # A newly pushed ref may contain commits beyond those on remote-tracking branches.
+      if ! commits="$(git rev-list --reverse "$local_oid" --not "--remotes=$remote_name")"; then
+        echo "Secret scan BLOCKED: cannot calculate commits for $local_ref." >&2
+        exit 1
+      fi
+      ;;
+  esac
+
+  [ -n "$commits" ] || continue
+  for commit in $commits; do
+    echo "Scanning commit $commit for $local_ref -> $remote_ref with Gitleaks..." >&2
+    # Each commit is passed as its own revision range; no space-containing Git argument is used.
+    # Redaction prevents matching secrets being echoed in ordinary scanner output.
+    if ! gitleaks git --redact --no-banner --log-opts="${commit}^..${commit}" .; then
+      echo "Secret scan BLOCKED: remove secrets from every affected commit before pushing." >&2
+      exit 1
+    fi
+  done
+done
