@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from math import isfinite
 from time import monotonic
+
+from daemon_reborn.domain.contracts import InterruptPolicy
 
 
 class PlaybackMode(StrEnum):
@@ -76,6 +79,7 @@ class SpritePlayer:
         self._paused_elapsed = 0.0
         self._generation = 0
         self._stopped = False
+        self._queued: deque[tuple[str, PlaybackMode | None]] = deque()
 
     @property
     def generation(self) -> int:
@@ -95,7 +99,9 @@ class SpritePlayer:
 
     @property
     def frame(self) -> SpriteFrame:
-        return self._frame_at(self._elapsed(self._clock()))
+        timestamp = self._clock()
+        frame = self._frame_at(self._elapsed(timestamp))
+        return self._dequeue_completed(timestamp, frame)
 
     def set_speed(self, speed: float) -> None:
         speed = self._validate_speed(speed)
@@ -104,16 +110,54 @@ class SpritePlayer:
         self._started_at = now - elapsed / speed
         self._speed = speed
 
-    def play(self, clip_name: str, *, now: float | None = None) -> int:
+    def play(
+        self,
+        clip_name: str,
+        *,
+        now: float | None = None,
+        mode: PlaybackMode | None = None,
+    ) -> int:
         """Interrupt the current clip and start a fresh generation."""
         started_at = self._clock() if now is None else self._validate_timestamp(now)
-        self._clip = self._clips.get(clip_name, self._clips[self._fallback])
+        self._validate_mode(mode)
+        self._queued.clear()
+        return self._start(clip_name, started_at, mode)
+
+    def _start(self, clip_name: str, started_at: float, mode: PlaybackMode | None) -> int:
+        clip = self._clips.get(clip_name, self._clips[self._fallback])
+        if mode is not None:
+            clip = replace(clip, mode=mode)
+        self._clip = clip
         self._generation += 1
         self._stopped = False
         self._paused_at = None
         self._paused_elapsed = 0.0
         self._started_at = started_at
         return self._generation
+
+    def play_if_current(
+        self,
+        clip_name: str,
+        generation: int,
+        *,
+        now: float | None = None,
+        mode: PlaybackMode | None = None,
+        interrupt_policy: InterruptPolicy = InterruptPolicy.ALLOW,
+    ) -> int | None:
+        """Start a clip only when ``generation`` still owns the player."""
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise TypeError("generation must be a non-negative integer")
+        if not isinstance(interrupt_policy, InterruptPolicy):
+            raise TypeError("interrupt_policy must be InterruptPolicy")
+        self._validate_mode(mode)
+        if generation != self._generation:
+            return None
+        if interrupt_policy is InterruptPolicy.NEVER:
+            return None
+        if interrupt_policy is InterruptPolicy.QUEUE:
+            self._queued.append((clip_name, mode))
+            return None
+        return self.play(clip_name, now=now, mode=mode)
 
     def interrupt(self, generation: int, *, fallback: bool = True) -> int:
         """Ignore stale callers and optionally return to the fallback clip."""
@@ -138,6 +182,7 @@ class SpritePlayer:
     def reset(self, *, now: float | None = None) -> None:
         started_at = self._clock() if now is None else self._validate_timestamp(now)
         self._generation += 1
+        self._queued.clear()
         self._started_at = started_at
         self._paused_at = None
         self._paused_elapsed = 0.0
@@ -146,7 +191,15 @@ class SpritePlayer:
     def tick(self, *, now: float | None = None) -> SpriteFrame:
         """Return the frame at ``now``; delayed ticks skip stale frames safely."""
         timestamp = self._clock() if now is None else now
-        return self._frame_at(self._elapsed(timestamp))
+        frame = self._frame_at(self._elapsed(timestamp))
+        return self._dequeue_completed(timestamp, frame)
+
+    def _dequeue_completed(self, timestamp: float, frame: SpriteFrame) -> SpriteFrame:
+        if self._stopped and self._queued:
+            clip_name, mode = self._queued.popleft()
+            self._start(clip_name, timestamp, mode)
+            return self._frame_at(0.0)
+        return frame
 
     def _elapsed(self, now: float) -> float:
         now = self._validate_timestamp(now)
@@ -182,3 +235,8 @@ class SpritePlayer:
         if not isfinite(speed) or speed <= 0.0:
             raise ValueError("speed must be finite and positive")
         return speed
+
+    @staticmethod
+    def _validate_mode(mode: PlaybackMode | None) -> None:
+        if mode is not None and not isinstance(mode, PlaybackMode):
+            raise TypeError("mode must be PlaybackMode or None")
