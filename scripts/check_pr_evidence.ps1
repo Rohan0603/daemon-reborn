@@ -16,6 +16,28 @@ if ($governanceMigration) {
     exit 0
 }
 
+# New GitHub Issues are the source for development PRs after migration. Keep the
+# original ORC branch/title evidence contract below for already-open legacy PRs.
+$githubIssueUrl = [regex]::Match(
+    $env:PR_BODY,
+    "https://github\\.com/Rohan0603/daemon-reborn/issues/(\\d+)",
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+)
+if ($githubIssueUrl.Success) {
+    $githubIssueNum = $githubIssueUrl.Groups[1].Value
+    if ($env:PR_TITLE -notmatch "#$githubIssueNum\\b") {
+        throw "GitHub-backed PR title must include #$githubIssueNum."
+    }
+    if ($env:PR_HEAD_REF -notmatch "(?i)(?:^|[/_-])$githubIssueNum(?:[/_-]|$)") {
+        throw "GitHub-backed PR branch must include issue number $githubIssueNum."
+    }
+    if ($env:PR_BODY -notmatch "(?im)^#{1,6}\\s+(Verification|Testing)\\b") {
+        throw "GitHub-backed PR must include a Verification or Testing section."
+    }
+    Write-Output "PR evidence links to GitHub issue #$githubIssueNum and includes verification results."
+    exit 0
+}
+
 $issueUrl = [regex]::Match(
     $env:PR_BODY,
     "https://linear\.app/agtorchestrator/issue/(ORC-\d+)",
