@@ -1,0 +1,44 @@
+{
+  "atlas": {
+    "filename": "atlas.png",
+    "height": 2,
+    "sha256": "60ee86f1ca7d52e164cca841ddf8bcc26660acf3564dfe00b9add6c863783bfd",
+    "width": 2
+  },
+  "canvas": {
+    "fps": 8,
+    "height": 2,
+    "width": 2
+  },
+  "clips": [
+    {
+      "frame_ids": [
+        0
+      ],
+      "loop": true,
+      "name": "idle",
+      "priority": 0
+    }
+  ],
+  "editor": {
+    "name": "daemon-reborn-packaged",
+    "version": "1"
+  },
+  "fallback": "idle",
+  "frames": [
+    {
+      "duration_ms": 125,
+      "height": 2,
+      "id": 0,
+      "width": 2,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "filename": "packaged-idle-placeholder.pxo",
+    "license": "CC0-1.0",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

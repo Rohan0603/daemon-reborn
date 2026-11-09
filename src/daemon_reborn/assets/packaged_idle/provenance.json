@@ -1,0 +1,16 @@
+{
+  "editor": {
+    "name": "daemon-reborn-packaged",
+    "version": "1"
+  },
+  "files": {
+    "atlas.png": "60ee86f1ca7d52e164cca841ddf8bcc26660acf3564dfe00b9add6c863783bfd",
+    "manifest.json": "34a01821284f675b9f410c7847d1c810da664ffa20d6a15a2b42925850c68b59"
+  },
+  "schema_version": 1,
+  "source": {
+    "filename": "packaged-idle-placeholder.pxo",
+    "license": "CC0-1.0",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}
