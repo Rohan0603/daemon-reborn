@@ -1,3 +1,19 @@
+# GitHub Chief / Worker governance migration — Daemon Reborn
+
+> **Current operating overlay (2026-11-09).** This section supersedes legacy **Linear** work-tracking, executor-routing and status-change instructions below, but **does not supersede project-specific architectural, security, provenance, validation, asset-licensing, decision-record or release-safety requirements**. Keep the original historical instructions below for traceability.
+
+- **Task authority:** GitHub repository Issues plus an explicitly selected GitHub Projects v2 board. Project membership, Status, Priority, milestones and native dependencies are **NOT VERIFIED / not yet configured by this PR**; no agent may claim implementation `Ready` on this migration alone. Legacy Linear issue IDs (ORC-/VES-/RBRN-) remain source references, not an independent execution queue once a GitHub counterpart is approved.
+- **Human invocation only:** The owner starts Chief/Worker sessions manually or through an approved AI-tool schedule. Changing labels, status or Actions events never launches AI agents. No unattended dispatcher or runner tokens are introduced.
+- **Route labels:** exactly one primary `chief` or `worker`; `human` only with `chief` for actual owner gates. `metadata-bootstrap` is only an auxiliary `worker` flag, never implementation permission.
+- **Mandatory first handoff:** Chief records `GITHUB METADATA SETUP` with target Project, field values, milestone/relationships and read-back status. If the Chief cannot access Projects, an explicitly scoped `METADATA BOOTSTRAP HANDOFF` may route `worker + metadata-bootstrap` **for metadata only**, then return to Chief with verified evidence; a separate `worker + Ready` handoff is required before implementation. On partial failures stop and reconcile, never invent Project read-back.
+- **Safety retained:** Daemon Reborn's exact requirements, immutable approved decisions, Windows validation gates, Pixelorama asset provenance and QA checks remain binding. Preserve strict issue-before-code, source-based review and acceptance evidence. Never copy artifacts from legacy Daemon unless separately authorized.
+- **Canonical full contract:** [docs/GITHUB_AGENT_GOVERNANCE.md](docs/GITHUB_AGENT_GOVERNANCE.md) is the adopted reusable Chief/Worker protocol. For work tracking/route/status conflicts it takes precedence over the historical Linear-only wording below; the existing instructions below remain authoritative for domain-specific work.
+- **Default branch:** `main`. Do not modify branch protection, production code or existing CI as part of this PR.
+
+---
+
+## Existing Daemon Reborn project-specific agent instructions (preserved)
+
 # Agent entrypoint
 
 Linear is the only source of truth for requirements, decisions, research, work status and acceptance. This file and the README are pointers and bootstrap instructions; do not add a repository TODO list or copy project plans here.

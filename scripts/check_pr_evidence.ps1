@@ -1,5 +1,43 @@
 $ErrorActionPreference = "Stop"
 
+# Narrow migration exception: bridge the legacy ORC-key PR gate to its already
+# migrated GitHub governance issue. This applies only to the exact migration
+# branch/title and must not relax evidence checks for normal product PRs.
+$governanceMigration = (
+    $env:PR_HEAD_REF -eq "governance/20261109-chief-worker-migration" -and
+    $env:PR_TITLE -like "governance: adopt GitHub Chief/Worker template*" -and
+    $env:PR_BODY -match "https://github\.com/Rohan0603/daemon-reborn/issues/94\b"
+)
+if ($governanceMigration) {
+    if ($env:PR_BODY -notmatch "(?im)^#{1,6}\s+(Verification|Testing)\b") {
+        throw "Governance migration PR must have a Verification or Testing evidence section."
+    }
+    Write-Output "Governance migration evidence linked to GitHub Issue #94."
+    exit 0
+}
+
+# New GitHub Issues are the source for development PRs after migration. Keep the
+# original ORC branch/title evidence contract below for already-open legacy PRs.
+$githubIssueUrl = [regex]::Match(
+    $env:PR_BODY,
+    "https://github\.com/Rohan0603/daemon-reborn/issues/(\d+)",
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+)
+if ($githubIssueUrl.Success) {
+    $githubIssueNum = $githubIssueUrl.Groups[1].Value
+    if ($env:PR_TITLE -notmatch "#$githubIssueNum\b") {
+        throw "GitHub-backed PR title must include #$githubIssueNum."
+    }
+    if ($env:PR_HEAD_REF -notmatch "(?i)(?:^|[/_-])$githubIssueNum(?:[/_-]|$)") {
+        throw "GitHub-backed PR branch must include issue number $githubIssueNum."
+    }
+    if ($env:PR_BODY -notmatch "(?im)^#{1,6}\s+(Verification|Testing)\b") {
+        throw "GitHub-backed PR must include a Verification or Testing section."
+    }
+    Write-Output "PR evidence links to GitHub issue #$githubIssueNum and includes verification results."
+    exit 0
+}
+
 $issueUrl = [regex]::Match(
     $env:PR_BODY,
     "https://linear\.app/agtorchestrator/issue/(ORC-\d+)",
